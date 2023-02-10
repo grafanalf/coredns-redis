@@ -2,20 +2,16 @@ package plugin
 
 import (
 	"errors"
-	"github.com/caddyserver/caddy"
-	"github.com/coredns/coredns/core/dnsserver"
-	"github.com/coredns/coredns/plugin"
-	"github.com/rverst/coredns-redis"
 	"strconv"
 	"time"
+
+	"github.com/coredns/caddy"
+	"github.com/coredns/coredns/core/dnsserver"
+	"github.com/coredns/coredns/plugin"
+	redis "github.com/grafanalf/coredns-redis"
 )
 
-func init() {
-	caddy.RegisterPlugin("redis", caddy.Plugin{
-		ServerType: "dns",
-		Action:     setup,
-	})
-}
+func init() { plugin.Register("redis", setup) }
 
 func setup(c *caddy.Controller) error {
 	r, err := redisParse(c)
@@ -30,8 +26,8 @@ func setup(c *caddy.Controller) error {
 	}
 
 	p := &Plugin{
-		Redis: r,
-		loadZoneTicker: time.NewTicker(time.Duration(r.DefaultTtl) * time.Second),
+		Redis:          r,
+		loadZoneTicker: time.NewTicker(time.Duration(redis.DefaultTtl) * time.Second),
 	}
 	p.startZoneNameCache()
 
@@ -44,9 +40,17 @@ func setup(c *caddy.Controller) error {
 }
 
 func redisParse(c *caddy.Controller) (*redis.Redis, error) {
-	r := redis.New()
 
-	for c.Next() {
+	if c.Next() {
+		if c.Val() != "redis" {
+			return redis.New(), c.ArgErr()
+		}
+		if !c.NextArg() {
+			return redis.New(), c.ArgErr()
+		}
+		log.Infof("redis: configure Redis support for domain '%s'", c.Val())
+
+		r := redis.New()
 		if c.NextBlock() {
 			for {
 				switch c.Val() {
@@ -55,6 +59,7 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 						return redis.New(), c.ArgErr()
 					}
 					r.SetAddress(c.Val())
+
 				case "username":
 					if !c.NextArg() {
 						return redis.New(), c.ArgErr()
@@ -91,16 +96,6 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 					if err != nil {
 						r.SetReadTimeout(t)
 					}
-				case "ttl":
-					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
-					}
-					t, err := strconv.Atoi(c.Val())
-					if err != nil {
-						r.SetDefaultTtl(redis.DefaultTtl)
-					} else {
-						r.SetDefaultTtl(t)
-					}
 				default:
 					if c.Val() != "}" {
 						return redis.New(), c.Errf("unknown property '%s'", c.Val())
@@ -111,7 +106,6 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 					break
 				}
 			}
-
 		}
 
 		err := r.Connect()
