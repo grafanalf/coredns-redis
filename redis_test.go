@@ -1,7 +1,7 @@
 package redis
 
 import (
-	"github.com/rverst/coredns-redis/record"
+	"github.com/grafanalf/coredns-redis/record"
 	"net"
 	"testing"
 )
@@ -90,5 +90,3 @@ func TestRedis_SaveZone(t *testing.T) {
 		})
 	}
 }
-
-

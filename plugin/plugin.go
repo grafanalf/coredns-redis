@@ -7,9 +7,9 @@ import (
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	redisCon "github.com/gomodule/redigo/redis"
+	redis "github.com/grafanalf/coredns-redis"
+	"github.com/grafanalf/coredns-redis/record"
 	"github.com/miekg/dns"
-	redis "github.com/rverst/coredns-redis"
-	"github.com/rverst/coredns-redis/record"
 	"sort"
 	"sync"
 	"time"
@@ -69,7 +69,7 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 
 	if zoneName == "" {
 		log.Debugf("zone not found: %s", qName)
-		p.checkCache();
+		p.checkCache()
 		return plugin.NextOrFailure(qName, p.Next, ctx, w, r)
 	} else if conn == nil {
 		conn = p.Redis.Pool.Get()
@@ -202,7 +202,7 @@ func (p *Plugin) loadCache() error {
 }
 
 func (p *Plugin) checkCache() {
-	if time.Now().Sub(p.lastRefresh).Seconds() > float64(p.Redis.DefaultTtl * 2) {
+	if time.Now().Sub(p.lastRefresh).Seconds() > float64(p.Redis.DefaultTtl*2) {
 		p.startZoneNameCache()
 	}
 }

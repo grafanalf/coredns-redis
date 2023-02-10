@@ -7,7 +7,7 @@ this plugin should be located right next to *etcd* in *plugins.cfg*:
 ...
 secondary:secondary
 etcd:etcd
-redis:github.com/rverst/coredns-redis/plugin
+redis:github.com/grafanalf/coredns-redis/plugin
 loop:loop
 forward:forward
 grpc:grpc

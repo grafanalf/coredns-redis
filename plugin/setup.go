@@ -5,7 +5,7 @@ import (
 	"github.com/caddyserver/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
-	"github.com/rverst/coredns-redis"
+	"github.com/grafanalf/coredns-redis"
 	"strconv"
 	"time"
 )
@@ -30,7 +30,7 @@ func setup(c *caddy.Controller) error {
 	}
 
 	p := &Plugin{
-		Redis: r,
+		Redis:          r,
 		loadZoneTicker: time.NewTicker(time.Duration(r.DefaultTtl) * time.Second),
 	}
 	p.startZoneNameCache()
