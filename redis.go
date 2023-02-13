@@ -272,7 +272,7 @@ func (redis *Redis) AXFR(z *record.Zone, zones []string, conn redisCon.Conn) (re
 	for key := range z.Locations {
 		if key == "@" {
 			location := redis.FindLocation(z.Name, z)
-			zoneRecords := redis.LoadZoneRecords(location, z)
+			zoneRecords := redis.LoadZoneRecordsC(location, z, conn)
 			zoneRecords.MakeFqdn(z.Name)
 			soa, _ = redis.SOA(z, zoneRecords)
 		} else {
@@ -281,7 +281,7 @@ func (redis *Redis) AXFR(z *record.Zone, zones []string, conn redisCon.Conn) (re
 			var xs []dns.RR
 
 			location := redis.FindLocation(fqdnKey, z)
-			zoneRecords := redis.LoadZoneRecords(location, z)
+			zoneRecords := redis.LoadZoneRecordsC(location, z, conn)
 			zoneRecords.MakeFqdn(z.Name)
 
 			// Pull all zone records
@@ -382,37 +382,12 @@ func (redis *Redis) ttl(ttl int) uint32 {
 }
 
 func (redis *Redis) FindLocation(query string, z *record.Zone) string {
-	var (
-		ok                                 bool
-		closestEncloser, sourceOfSynthesis string
-	)
-
 	// request for zone records
 	if query == z.Name {
 		return query
 	}
 
-	query = strings.TrimSuffix(query, "."+z.Name)
-
-	if _, ok = z.Locations[query]; ok {
-		return query
-	}
-
-	closestEncloser, sourceOfSynthesis, ok = splitQuery(query)
-	for ok {
-		ceExists := keyMatches(closestEncloser, z) || keyExists(closestEncloser, z)
-		ssExists := keyExists(sourceOfSynthesis, z)
-		if ceExists {
-			if ssExists {
-				return sourceOfSynthesis
-			} else {
-				return ""
-			}
-		} else {
-			closestEncloser, sourceOfSynthesis, ok = splitQuery(closestEncloser)
-		}
-	}
-	return ""
+	return strings.TrimSuffix(query, "."+z.Name)
 }
 
 // Connect establishes a connection to the redis-backend. The configuration must have
@@ -505,54 +480,10 @@ func (redis *Redis) SaveZones(zones []record.Zone) (int, error) {
 	return ok, nil
 }
 
-// LoadZone calls LoadZoneC with a new redis connection
-func (redis *Redis) LoadZone(zone string, withRecord bool) *record.Zone {
-	conn := redis.Pool.Get()
-	if conn == nil {
-		fmt.Println("error connecting to redis")
-		return nil
-	}
-	defer conn.Close()
-
-	return redis.LoadZoneC(zone, withRecord, conn)
-}
-
-// LoadZoneC loads a zone from the backend. The loading of the records is optional, if omitted
-// the result contains only the locations in the zone.
 func (redis *Redis) LoadZoneC(zone string, withRecord bool, conn redisCon.Conn) *record.Zone {
-	var (
-		reply  interface{}
-		err    error
-		values []string
-	)
-
-	reply, err = conn.Do("HKEYS", redis.Key(zone))
-	values, err = redisCon.Strings(reply, err)
-	if err != nil || len(values) == 0 {
-		return nil
-	}
-
 	z := new(record.Zone)
 	z.Name = zone
-	z.Locations = make(map[string]record.Records)
-	for _, val := range values {
-		if withRecord {
-			z.Locations[val] = *redis.LoadZoneRecordsC(val, z, conn)
-		} else {
-			z.Locations[val] = record.Records{}
-		}
-	}
-
 	return z
-}
-
-// LoadZoneRecords calls LoadZoneRecordsC with a new redis connection
-func (redis *Redis) LoadZoneRecords(key string, z *record.Zone) *record.Records {
-
-	conn := redis.Pool.Get()
-	defer conn.Close()
-
-	return redis.LoadZoneRecordsC(key, z, conn)
 }
 
 // LoadZoneRecordsC loads a zone record from the backend for a given zone

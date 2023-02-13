@@ -2,13 +2,11 @@ package plugin
 
 import (
 	"context"
-	"fmt"
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	redisCon "github.com/gomodule/redigo/redis"
 	redis "github.com/grafanalf/coredns-redis"
-	"github.com/grafanalf/coredns-redis/record"
 	"github.com/miekg/dns"
 	"sort"
 	"sync"
@@ -63,7 +61,6 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	if x >= 0 && x < len(p.zones) && p.zones[x] == qName {
 		zoneName = p.zones[x]
 	} else {
-		conn = p.Redis.Pool.Get()
 		zoneName = plugin.Zones(p.zones).Matches(qName)
 	}
 
@@ -71,31 +68,22 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 		log.Debugf("zone not found: %s", qName)
 		p.checkCache()
 		return plugin.NextOrFailure(qName, p.Next, ctx, w, r)
-	} else if conn == nil {
-		conn = p.Redis.Pool.Get()
 	}
 
+	conn = p.Redis.Pool.Get()
 	zone := p.Redis.LoadZoneC(zoneName, false, conn)
 	if zone == nil {
 		log.Errorf("unable to load zone: %s", zoneName)
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
 	}
 
-	if qType == dns.TypeAXFR {
-		log.Debug("zone transfer request (Handler)")
-		return p.handleZoneTransfer(zone, p.zones, w, r, conn)
-	}
-
 	location := p.Redis.FindLocation(qName, zone)
-	if location == "" {
-		log.Debugf("location %s not found for zone: %s", qName, zone)
-		p.checkCache()
-		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeNameError, nil)
-	}
-
 	answers := make([]dns.RR, 0, 0)
 	extras := make([]dns.RR, 0, 10)
 	zoneRecords := p.Redis.LoadZoneRecordsC(location, zone, conn)
+	if zoneRecords == nil {
+		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
+	}
 	zoneRecords.MakeFqdn(zone.Name)
 
 	switch qType {
@@ -132,37 +120,6 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	state.SizeAndDo(m)
 	m = state.Scrub(m)
 	_ = w.WriteMsg(m)
-	return dns.RcodeSuccess, nil
-}
-
-func (p *Plugin) handleZoneTransfer(zone *record.Zone, zones []string, w dns.ResponseWriter, r *dns.Msg, conn redisCon.Conn) (int, error) {
-	//todo: check and test zone transfer, implement ip-range check
-	records := p.Redis.AXFR(zone, zones, conn)
-	ch := make(chan *dns.Envelope)
-	tr := new(dns.Transfer)
-	tr.TsigSecret = nil
-	go func(ch chan *dns.Envelope) {
-		j, l := 0, 0
-
-		for i, r := range records {
-			l += dns.Len(r)
-			if l > redis.MaxTransferLength {
-				ch <- &dns.Envelope{RR: records[j:i]}
-				l = 0
-				j = i
-			}
-		}
-		if j < len(records) {
-			ch <- &dns.Envelope{RR: records[j:]}
-		}
-		close(ch)
-	}(ch)
-
-	err := tr.Out(w, r, ch)
-	if err != nil {
-		fmt.Println(err)
-	}
-	w.Hijack()
 	return dns.RcodeSuccess, nil
 }
 
