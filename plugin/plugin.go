@@ -2,15 +2,16 @@ package plugin
 
 import (
 	"context"
+	"sort"
+	"sync"
+	"time"
+
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	redisCon "github.com/gomodule/redigo/redis"
 	redis "github.com/grafanalf/coredns-redis"
 	"github.com/miekg/dns"
-	"sort"
-	"sync"
-	"time"
 )
 
 const name = "redis"
@@ -84,7 +85,6 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	if zoneRecords == nil {
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
 	}
-	zoneRecords.MakeFqdn(zone.Name)
 
 	switch qType {
 	case dns.TypeSOA:

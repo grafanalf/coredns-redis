@@ -3,12 +3,13 @@ package redis
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/request"
 	"github.com/grafanalf/coredns-redis/record"
 	"github.com/miekg/dns"
-	"strings"
-	"time"
 
 	redisCon "github.com/gomodule/redigo/redis"
 )
@@ -261,69 +262,6 @@ func (redis *Redis) CAA(name string, _ *record.Zone, record *record.Records) (an
 	return
 }
 
-func (redis *Redis) AXFR(z *record.Zone, zones []string, conn redisCon.Conn) (records []dns.RR) {
-	//soa, _ := redis.SOA(z.Name, z, record)
-	soa := make([]dns.RR, 0)
-	answers := make([]dns.RR, 0, 10)
-	extras := make([]dns.RR, 0, 10)
-
-	// Allocate slices for rr Records
-	records = append(records, soa...)
-	for key := range z.Locations {
-		if key == "@" {
-			location := redis.FindLocation(z.Name, z)
-			zoneRecords := redis.LoadZoneRecordsC(location, z, conn)
-			zoneRecords.MakeFqdn(z.Name)
-			soa, _ = redis.SOA(z, zoneRecords)
-		} else {
-			fqdnKey := dns.Fqdn(key) + z.Name
-			var as []dns.RR
-			var xs []dns.RR
-
-			location := redis.FindLocation(fqdnKey, z)
-			zoneRecords := redis.LoadZoneRecordsC(location, z, conn)
-			zoneRecords.MakeFqdn(z.Name)
-
-			// Pull all zone records
-			as, xs = redis.A(fqdnKey, z, zoneRecords)
-			answers = append(answers, as...)
-			extras = append(extras, xs...)
-
-			as, xs = redis.AAAA(fqdnKey, z, zoneRecords)
-			answers = append(answers, as...)
-			extras = append(extras, xs...)
-
-			as, xs = redis.CNAME(fqdnKey, z, zoneRecords)
-			answers = append(answers, as...)
-			extras = append(extras, xs...)
-
-			as, xs = redis.MX(fqdnKey, z, zoneRecords, zones, conn)
-			answers = append(answers, as...)
-			extras = append(extras, xs...)
-
-			as, xs = redis.SRV(fqdnKey, z, zoneRecords, zones, conn)
-			answers = append(answers, as...)
-			extras = append(extras, xs...)
-
-			as, xs = redis.PTR(fqdnKey, z, zoneRecords, zones, conn)
-			answers = append(answers, as...)
-			extras = append(extras, xs...)
-
-			as, xs = redis.TXT(fqdnKey, z, zoneRecords)
-			answers = append(answers, as...)
-			extras = append(extras, xs...)
-		}
-	}
-
-	records = soa
-	records = append(records, answers...)
-	records = append(records, extras...)
-	records = append(records, soa...)
-
-	fmt.Println(records)
-	return
-}
-
 func (redis *Redis) getExtras(name string, z *record.Zone, zones []string, conn redisCon.Conn) []dns.RR {
 	location := redis.FindLocation(name, z)
 	if location == "" {
@@ -356,8 +294,6 @@ func (redis *Redis) fillExtras(name string, z *record.Zone, location string, con
 	)
 
 	zoneRecords = redis.LoadZoneRecordsC(location, z, conn)
-	zoneRecords.MakeFqdn(z.Name)
-
 	if zoneRecords == nil {
 		return nil
 	}
@@ -509,6 +445,7 @@ func (redis *Redis) LoadZoneRecordsC(key string, z *record.Zone, conn redisCon.C
 	if err != nil {
 		return nil
 	}
+	fmt.Printf("redis: val = %s\n", val)
 	r := new(record.Records)
 	err = json.Unmarshal([]byte(val), r)
 	if err != nil {
@@ -534,14 +471,6 @@ func (redis *Redis) LoadAllZoneNames() ([]string, error) {
 		zones[i] = strings.TrimSuffix(zones[i], redis.keySuffix)
 	}
 	return zones, nil
-}
-
-// LoadZoneNames calls LoadZoneNamesC with a new redis connection
-func (redis *Redis) LoadZoneNames(name string) ([]string, error, bool) {
-	conn := redis.Pool.Get()
-	defer conn.Close()
-
-	return redis.LoadZoneNamesC(name, conn)
 }
 
 // LoadZoneNamesC loads all zone names from the backend that are a subset from the given name.

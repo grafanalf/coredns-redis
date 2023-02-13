@@ -2,10 +2,11 @@ package record
 
 import (
 	"fmt"
-	"github.com/miekg/dns"
 	"log"
 	"sort"
 	"strings"
+
+	"github.com/miekg/dns"
 )
 
 type Type string
@@ -36,47 +37,6 @@ type Records struct {
 	SRV   []SRV   `json:"SRV,omitempty"`
 	PTR   []PTR   `json:"PTR,omitempty"`
 	CAA   []CAA   `json:"CAA,omitempty"`
-}
-
-// appends the zoneName to values which are not fully qualified domain names
-func (r *Records) MakeFqdn(zoneName string) {
-
-	if len(zoneName) == 0 {
-		return
-	} else if zoneName[0] != '.' {
-		zoneName = "." + zoneName
-	}
-	zoneName = dns.Fqdn(zoneName)
-
-	if r.SOA != nil {
-		if !dns.IsFqdn(r.SOA.MName) {
-			r.SOA.MName += zoneName
-		}
-		if !dns.IsFqdn(r.SOA.RName) {
-			r.SOA.RName += zoneName
-		}
-	}
-
-	for i := range r.CNAME {
-		if !dns.IsFqdn(r.CNAME[i].Host) {
-			r.CNAME[i].Host += zoneName
-		}
-	}
-	for i := range r.MX {
-		if !dns.IsFqdn(r.MX[i].Host) {
-			r.MX[i].Host += zoneName
-		}
-	}
-	for i := range r.NS {
-		if !dns.IsFqdn(r.NS[i].Host) {
-			r.NS[i].Host += zoneName
-		}
-	}
-	for i := range r.SRV {
-		if !dns.IsFqdn(r.SRV[i].Target) {
-			r.SRV[i].Target += zoneName
-		}
-	}
 }
 
 // Zone represents a DNS zone
