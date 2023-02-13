@@ -60,7 +60,7 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 
 	var zoneName string
 	x := sort.SearchStrings(p.zones, qName)
-	if x >= 0 && p.zones[x] == qName {
+	if x >= 0 && x < len(p.zones) && p.zones[x] == qName {
 		zoneName = p.zones[x]
 	} else {
 		conn = p.Redis.Pool.Get()

@@ -10,12 +10,7 @@ import (
 	"time"
 )
 
-func init() {
-	caddy.RegisterPlugin("redis", caddy.Plugin{
-		ServerType: "dns",
-		Action:     setup,
-	})
-}
+func init() { plugin.Register("redis", setup) }
 
 func setup(c *caddy.Controller) error {
 	r, err := redisParse(c)
