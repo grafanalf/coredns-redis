@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"errors"
-	"fmt"
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
@@ -12,7 +11,6 @@ import (
 )
 
 func init() {
-	fmt.Println("init redis")
 	caddy.RegisterPlugin("redis", caddy.Plugin{
 		ServerType: "dns",
 		Action:     setup,
@@ -20,10 +18,8 @@ func init() {
 }
 
 func setup(c *caddy.Controller) error {
-	fmt.Println("setup redis")
 	r, err := redisParse(c)
 	if err != nil {
-		fmt.Printf("setup redis failed: %w\n", err)
 		return err
 	}
 
@@ -49,26 +45,25 @@ func setup(c *caddy.Controller) error {
 
 func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 
-	fmt.Println("redis: begin redisParse")
 	if c.Next() {
-		fmt.Printf("redis: c.Val() = %s\n", c.Val())
-	}
-	return nil, errors.New("no configuration found")
+		if c.Val() != "redis" {
+			return redis.New(), c.ArgErr()
+		}
+		if !c.NextArg() {
+			return redis.New(), c.ArgErr()
+		}
+		log.Infof("redis: configure Redis support for domain '%s'", c.Val())
 
-	r := redis.New()
-
-	for c.Next() {
+		r := redis.New()
 		if c.NextBlock() {
 			for {
-				fmt.Printf("redis: processing cmd '%s'\n", c.Val())
 				switch c.Val() {
 				case "address":
 					if !c.NextArg() {
-						fmt.Println("missing address parameter")
 						return redis.New(), c.ArgErr()
 					}
-					fmt.Printf("setting Redis address to: '%s'\n", c.Val())
 					r.SetAddress(c.Val())
+
 				case "username":
 					if !c.NextArg() {
 						return redis.New(), c.ArgErr()
@@ -127,7 +122,6 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 			}
 		}
 
-		fmt.Println("trying to connect to Redis")
 		err := r.Connect()
 		return r, err
 	}

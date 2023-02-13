@@ -434,7 +434,6 @@ func (redis *Redis) Connect() error {
 				opts = append(opts, redisCon.DialReadTimeout(time.Duration(redis.readTimeout)*time.Millisecond))
 			}
 
-			fmt.Printf("attempting to connect to Redis: '%w'\n", redis.address)
 			return redisCon.Dial("tcp", redis.address, opts...)
 		},
 	}
