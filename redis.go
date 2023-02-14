@@ -347,16 +347,6 @@ func (redis *Redis) Connect() error {
 	return nil
 }
 
-// DeleteZone deletes a zone-record from the backend.
-func (redis *Redis) DeleteZone(zoneName string) (bool, error) {
-	conn := redis.Pool.Get()
-	defer conn.Close()
-
-	reply, err := conn.Do("DEL", redis.Key(zoneName))
-	i, err := redisCon.Int(reply, err)
-	return i == 1, err
-}
-
 // LoadZoneRecord loads a zone record from the backend for a given zone
 func (redis *Redis) LoadZoneRecord(key string, zoneName string, conn redisCon.Conn) *record.Records {
 	var (
