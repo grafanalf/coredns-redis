@@ -379,52 +379,6 @@ func (redis *Redis) DeleteZone(zoneName string) (bool, error) {
 	return i == 1, err
 }
 
-// SaveZone saves a zone-record to the backend.
-func (redis *Redis) SaveZone(zone record.Zone) error {
-	conn := redis.Pool.Get()
-	defer conn.Close()
-	for k, v := range zone.Locations {
-		data, err := json.Marshal(v)
-		if err != nil {
-			return err
-		}
-		_, err = conn.Do("HSET", redis.Key(zone.Name), k, data)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// SaveZones saves a set of zone-records to the backend.
-func (redis *Redis) SaveZones(zones []record.Zone) (int, error) {
-	ok := 0
-	conn := redis.Pool.Get()
-	defer conn.Close()
-
-	for _, zone := range zones {
-		for k, v := range zone.Locations {
-			data, err := json.Marshal(v)
-			if err != nil {
-				return ok, err
-			}
-			_, err = conn.Do("HSET", redis.Key(zone.Name), k, data)
-			if err != nil {
-				return ok, err
-			}
-		}
-		ok++
-	}
-	return ok, nil
-}
-
-func (redis *Redis) LoadZoneC(zone string, withRecord bool, conn redisCon.Conn) *record.Zone {
-	z := new(record.Zone)
-	z.Name = zone
-	return z
-}
-
 // LoadZoneRecord loads a zone record from the backend for a given zone
 func (redis *Redis) LoadZoneRecord(key string, zoneName string, conn redisCon.Conn) *record.Records {
 	var (
@@ -511,20 +465,6 @@ func (redis *Redis) LoadZoneNamesC(name string, conn redisCon.Conn) ([]string, e
 // Key returns the given key with prefix and suffix
 func (redis *Redis) Key(zoneName string) string {
 	return redis.keyPrefix + dns.Fqdn(zoneName) + redis.keySuffix
-}
-
-func keyExists(key string, z *record.Zone) bool {
-	_, ok := z.Locations[key]
-	return ok
-}
-
-func keyMatches(key string, z *record.Zone) bool {
-	for value := range z.Locations {
-		if strings.HasSuffix(value, key) {
-			return true
-		}
-	}
-	return false
 }
 
 // reduceZoneName strips the zone down to top- and second-level

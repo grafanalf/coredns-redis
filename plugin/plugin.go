@@ -72,23 +72,17 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	}
 
 	conn = p.Redis.Pool.Get()
-	zone := p.Redis.LoadZoneC(zoneName, false, conn)
-	if zone == nil {
-		log.Errorf("unable to load zone: %s", zoneName)
-		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
-	}
-
-	location := p.Redis.FindLocation(qName, zone.Name)
+	location := p.Redis.FindLocation(qName, zoneName)
 	answers := make([]dns.RR, 0, 0)
 	extras := make([]dns.RR, 0, 10)
-	zoneRecords := p.Redis.LoadZoneRecord(location, zone.Name, conn)
+	zoneRecords := p.Redis.LoadZoneRecord(location, zoneName, conn)
 	if zoneRecords == nil {
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
 	}
 
 	switch qType {
 	case dns.TypeSOA:
-		answers, extras = p.Redis.SOA(zone.Name, zoneRecords)
+		answers, extras = p.Redis.SOA(zoneName, zoneRecords)
 	case dns.TypeA:
 		answers, extras = p.Redis.A(qName, zoneRecords)
 	case dns.TypeAAAA:
@@ -98,13 +92,13 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	case dns.TypeTXT:
 		answers, extras = p.Redis.TXT(qName, zoneRecords)
 	case dns.TypeNS:
-		answers, extras = p.Redis.NS(qName, zone.Name, zoneRecords, p.zones, conn)
+		answers, extras = p.Redis.NS(qName, zoneName, zoneRecords, p.zones, conn)
 	case dns.TypeMX:
-		answers, extras = p.Redis.MX(qName, zone.Name, zoneRecords, p.zones, conn)
+		answers, extras = p.Redis.MX(qName, zoneName, zoneRecords, p.zones, conn)
 	case dns.TypeSRV:
-		answers, extras = p.Redis.SRV(qName, zone.Name, zoneRecords, p.zones, conn)
+		answers, extras = p.Redis.SRV(qName, zoneName, zoneRecords, p.zones, conn)
 	case dns.TypePTR:
-		answers, extras = p.Redis.PTR(qName, zone.Name, zoneRecords, p.zones, conn)
+		answers, extras = p.Redis.PTR(qName, zoneName, zoneRecords, p.zones, conn)
 	case dns.TypeCAA:
 		answers, extras = p.Redis.CAA(qName, zoneRecords)
 
