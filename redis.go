@@ -15,6 +15,10 @@ import (
 )
 
 const (
+	// As per DNS RFC, a set of RRs shall have all their TTLs set to
+	// the same value. Thats means that the TTL field should be moved
+	// from the R-data structs (e.g. `A`) for those RRs that allow
+	// multiple values.
 	DefaultTtl        = 3600
 	MaxTransferLength = 1000
 )
@@ -445,7 +449,6 @@ func (redis *Redis) LoadZoneRecordsC(key string, z *record.Zone, conn redisCon.C
 	if err != nil {
 		return nil
 	}
-	fmt.Printf("redis: val = %s\n", val)
 	r := new(record.Records)
 	err = json.Unmarshal([]byte(val), r)
 	if err != nil {
