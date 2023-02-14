@@ -78,35 +78,35 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
 	}
 
-	location := p.Redis.FindLocation(qName, zone)
+	location := p.Redis.FindLocation(qName, zone.Name)
 	answers := make([]dns.RR, 0, 0)
 	extras := make([]dns.RR, 0, 10)
-	zoneRecords := p.Redis.LoadZoneRecordsC(location, zone, conn)
+	zoneRecords := p.Redis.LoadZoneRecord(location, zone.Name, conn)
 	if zoneRecords == nil {
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
 	}
 
 	switch qType {
 	case dns.TypeSOA:
-		answers, extras = p.Redis.SOA(zone, zoneRecords)
+		answers, extras = p.Redis.SOA(zone.Name, zoneRecords)
 	case dns.TypeA:
-		answers, extras = p.Redis.A(qName, zone, zoneRecords)
+		answers, extras = p.Redis.A(qName, zoneRecords)
 	case dns.TypeAAAA:
-		answers, extras = p.Redis.AAAA(qName, zone, zoneRecords)
+		answers, extras = p.Redis.AAAA(qName, zoneRecords)
 	case dns.TypeCNAME:
-		answers, extras = p.Redis.CNAME(qName, zone, zoneRecords)
+		answers, extras = p.Redis.CNAME(qName, zoneRecords)
 	case dns.TypeTXT:
-		answers, extras = p.Redis.TXT(qName, zone, zoneRecords)
+		answers, extras = p.Redis.TXT(qName, zoneRecords)
 	case dns.TypeNS:
-		answers, extras = p.Redis.NS(qName, zone, zoneRecords, p.zones, conn)
+		answers, extras = p.Redis.NS(qName, zone.Name, zoneRecords, p.zones, conn)
 	case dns.TypeMX:
-		answers, extras = p.Redis.MX(qName, zone, zoneRecords, p.zones, conn)
+		answers, extras = p.Redis.MX(qName, zone.Name, zoneRecords, p.zones, conn)
 	case dns.TypeSRV:
-		answers, extras = p.Redis.SRV(qName, zone, zoneRecords, p.zones, conn)
+		answers, extras = p.Redis.SRV(qName, zone.Name, zoneRecords, p.zones, conn)
 	case dns.TypePTR:
-		answers, extras = p.Redis.PTR(qName, zone, zoneRecords, p.zones, conn)
+		answers, extras = p.Redis.PTR(qName, zone.Name, zoneRecords, p.zones, conn)
 	case dns.TypeCAA:
-		answers, extras = p.Redis.CAA(qName, zone, zoneRecords)
+		answers, extras = p.Redis.CAA(qName, zoneRecords)
 
 	default:
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeNotImplemented, nil)
