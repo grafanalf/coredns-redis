@@ -3,6 +3,7 @@ package record
 // Records holds the location records for a zone
 type Records struct {
 	Ttl int `json:"ttl",omitempty`
+
 	// SOA record for the zone, mandatory but only allowed in '@'
 	SOA   *SOA    `json:"SOA,omitempty"`
 	A     []A     `json:"A,omitempty"`
