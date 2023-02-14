@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/request"
 	"github.com/grafanalf/coredns-redis/record"
 	"github.com/miekg/dns"
@@ -194,7 +193,7 @@ func (redis *Redis) NS(name string, zoneName string, record *record.Records, zon
 			Class: dns.ClassINET, Ttl: redis.ttl(ns.Ttl)}
 		r.Ns = ns.Host
 		answers = append(answers, r)
-		extras = append(extras, redis.getExtras(ns.Host, zoneName, zones, conn)...)
+		extras = append(extras, redis.getExtras(ns.Host, zoneName, conn)...)
 	}
 	return
 }
@@ -210,7 +209,7 @@ func (redis *Redis) MX(name string, zoneName string, record *record.Records, zon
 		r.Mx = mx.Host
 		r.Preference = mx.Preference
 		answers = append(answers, r)
-		extras = append(extras, redis.getExtras(mx.Host, zoneName, zones, conn)...)
+		extras = append(extras, redis.getExtras(mx.Host, zoneName, conn)...)
 	}
 	return
 }
@@ -228,7 +227,7 @@ func (redis *Redis) SRV(name string, zoneName string, record *record.Records, zo
 		r.Port = srv.Port
 		r.Priority = srv.Priority
 		answers = append(answers, r)
-		extras = append(extras, redis.getExtras(srv.Target, zoneName, zones, conn)...)
+		extras = append(extras, redis.getExtras(srv.Target, zoneName, conn)...)
 	}
 	return
 }
@@ -243,7 +242,7 @@ func (redis *Redis) PTR(name string, zoneName string, record *record.Records, zo
 			Class: dns.ClassINET, Ttl: redis.ttl(ptr.Ttl)}
 		r.Ptr = ptr.Name
 		answers = append(answers, r)
-		extras = append(extras, redis.getExtras(ptr.Name, zoneName, zones, conn)...)
+		extras = append(extras, redis.getExtras(ptr.Name, zoneName, conn)...)
 	}
 	return
 }
@@ -266,36 +265,15 @@ func (redis *Redis) CAA(name string, record *record.Records) (answers, extras []
 	return
 }
 
-func (redis *Redis) getExtras(name string, zoneName string, zones []string, conn redisCon.Conn) []dns.RR {
-	location := redis.FindLocation(name, zoneName)
-	if location == "" {
-		zoneName := plugin.Zones(zones).Matches(name)
-		if zoneName == "" {
-			zones, err, _ := redis.LoadZoneNamesC(name, conn)
-			if err != nil {
-				return nil
-			}
-			zoneName = plugin.Zones(zones).Matches(name)
-			if zoneName == "" {
-				return nil
-			}
-		}
-
-		location = redis.FindLocation(name, zoneName)
-		if location == "" {
-			return nil
-		}
-		return redis.fillExtras(name, zoneName, location, conn)
-	}
-	return redis.fillExtras(name, zoneName, location, conn)
-}
-
-func (redis *Redis) fillExtras(name string, zoneName string, location string, conn redisCon.Conn) []dns.RR {
+func (redis *Redis) getExtras(name string, zoneName string, conn redisCon.Conn) []dns.RR {
 	var (
 		zoneRecords *record.Records
 		answers     []dns.RR
 	)
 
+	// Does not support filling additional records from
+	// other zones
+	location := redis.FindLocation(name, zoneName)
 	zoneRecords = redis.LoadZoneRecord(location, zoneName, conn)
 	if zoneRecords == nil {
 		return nil
@@ -484,26 +462,6 @@ func reduceZoneName(name string) string {
 		}
 	}
 	return name
-}
-
-func splitQuery(query string) (string, string, bool) {
-	if query == "" {
-		return "", "", false
-	}
-	var (
-		splits            []string
-		closestEncloser   string
-		sourceOfSynthesis string
-	)
-	splits = strings.SplitAfterN(query, ".", 2)
-	if len(splits) == 2 {
-		closestEncloser = splits[1]
-		sourceOfSynthesis = "*." + closestEncloser
-	} else {
-		closestEncloser = ""
-		sourceOfSynthesis = "*"
-	}
-	return closestEncloser, sourceOfSynthesis, true
 }
 
 func split255(s string) []string {
