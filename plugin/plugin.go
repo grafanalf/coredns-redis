@@ -84,13 +84,13 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	case dns.TypeSOA:
 		answers, extras = p.Redis.SOA(zoneName, zoneRecords)
 	case dns.TypeA:
-		answers, extras = p.Redis.A(qName, zoneRecords)
+		answers, extras = p.Redis.A(qName, zoneName, zoneRecords)
 	case dns.TypeAAAA:
-		answers, extras = p.Redis.AAAA(qName, zoneRecords)
+		answers, extras = p.Redis.AAAA(qName, zoneName, zoneRecords)
 	case dns.TypeCNAME:
-		answers, extras = p.Redis.CNAME(qName, zoneRecords)
+		answers, extras = p.Redis.CNAME(qName, zoneName, zoneRecords)
 	case dns.TypeTXT:
-		answers, extras = p.Redis.TXT(qName, zoneRecords)
+		answers, extras = p.Redis.TXT(qName, zoneName, zoneRecords)
 	case dns.TypeNS:
 		answers, extras = p.Redis.NS(qName, zoneName, zoneRecords, p.zones, conn)
 	case dns.TypeMX:
@@ -147,6 +147,15 @@ func (p *Plugin) loadCache() error {
 	sort.Strings(z)
 	p.lock.Lock()
 	p.zones = z
+
+	// Cache min TTL for every DNS zone from Redis
+	for _, zone := range z {
+		conn := p.Redis.Pool.Get()
+		rec := p.Redis.LoadZoneRecord("@", zone, conn)
+		p.Redis.MinZoneTtl = make(map[string]uint32)
+		p.Redis.MinZoneTtl[zone] = rec.SOA.MinTtl
+	}
+
 	p.lastRefresh = time.Now()
 	p.lock.Unlock()
 	return nil

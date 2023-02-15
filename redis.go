@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	"github.com/grafanalf/coredns-redis/record"
 	"github.com/miekg/dns"
@@ -31,7 +32,13 @@ type Redis struct {
 	readTimeout    int
 	keyPrefix      string
 	keySuffix      string
-	DefaultTtl     int
+	ttlSuffix      string
+	DefaultTtl     uint32
+
+	MinZoneTtl map[string]uint32
+
+	// TODO: turn this into a LRU cache or some such
+	//cachedRecords *lru.TwoQueueCache[string, *record.Records]
 }
 
 func New() *Redis {
@@ -63,6 +70,11 @@ func (redis *Redis) SetKeySuffix(s string) {
 	redis.keySuffix = s
 }
 
+// SetTtlSuffix sets a suffix for all redis-ttls (optional)
+func (redis *Redis) SetTtlSuffix(s string) {
+	redis.ttlSuffix = s
+}
+
 // SetConnectTimeout sets a timeout in ms for the connection setup (optional)
 func (redis *Redis) SetConnectTimeout(t int) {
 	redis.connectTimeout = t
@@ -74,7 +86,7 @@ func (redis *Redis) SetReadTimeout(t int) {
 }
 
 // SetDefaultTtl sets a default TTL for records in the redis backend (default 3600)
-func (redis *Redis) SetDefaultTtl(t int) {
+func (redis *Redis) SetDefaultTtl(t uint32) {
 	redis.DefaultTtl = t
 }
 
@@ -112,7 +124,7 @@ func (redis *Redis) SOA(zoneName string, rec *record.Records) (answers, extras [
 	soa := new(dns.SOA)
 
 	soa.Hdr = dns.RR_Header{Name: dns.Fqdn(zoneName), Rrtype: dns.TypeSOA,
-		Class: dns.ClassINET, Ttl: redis.ttl(rec.SOA.Ttl)}
+		Class: dns.ClassINET, Ttl: rec.Ttl}
 	soa.Ns = rec.SOA.MName
 	soa.Mbox = rec.SOA.RName
 	soa.Serial = rec.SOA.Serial
@@ -127,56 +139,56 @@ func (redis *Redis) SOA(zoneName string, rec *record.Records) (answers, extras [
 	return
 }
 
-func (redis *Redis) A(name string, record *record.Records) (answers, extras []dns.RR) {
+func (redis *Redis) A(name string, zoneName string, record *record.Records) (answers, extras []dns.RR) {
 	for _, a := range record.A {
 		if a.Ip == nil {
 			continue
 		}
 		r := new(dns.A)
 		r.Hdr = dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeA,
-			Class: dns.ClassINET, Ttl: redis.ttl(a.Ttl)}
+			Class: dns.ClassINET, Ttl: record.Ttl}
 		r.A = a.Ip
 		answers = append(answers, r)
 	}
 	return
 }
 
-func (redis Redis) AAAA(name string, record *record.Records) (answers, extras []dns.RR) {
+func (redis Redis) AAAA(name string, zoneName string, record *record.Records) (answers, extras []dns.RR) {
 	for _, aaaa := range record.AAAA {
 		if aaaa.Ip == nil {
 			continue
 		}
 		r := new(dns.AAAA)
 		r.Hdr = dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeAAAA,
-			Class: dns.ClassINET, Ttl: redis.ttl(aaaa.Ttl)}
+			Class: dns.ClassINET, Ttl: record.Ttl}
 		r.AAAA = aaaa.Ip
 		answers = append(answers, r)
 	}
 	return
 }
 
-func (redis *Redis) CNAME(name string, record *record.Records) (answers, extras []dns.RR) {
+func (redis *Redis) CNAME(name string, zoneName string, record *record.Records) (answers, extras []dns.RR) {
 	for _, cname := range record.CNAME {
 		if len(cname.Host) == 0 {
 			continue
 		}
 		r := new(dns.CNAME)
 		r.Hdr = dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeCNAME,
-			Class: dns.ClassINET, Ttl: redis.ttl(cname.Ttl)}
+			Class: dns.ClassINET, Ttl: record.Ttl}
 		r.Target = dns.Fqdn(cname.Host)
 		answers = append(answers, r)
 	}
 	return
 }
 
-func (redis *Redis) TXT(name string, record *record.Records) (answers, extras []dns.RR) {
+func (redis *Redis) TXT(name string, zoneName string, record *record.Records) (answers, extras []dns.RR) {
 	for _, txt := range record.TXT {
 		if len(txt.Text) == 0 {
 			continue
 		}
 		r := new(dns.TXT)
 		r.Hdr = dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeTXT,
-			Class: dns.ClassINET, Ttl: redis.ttl(txt.Ttl)}
+			Class: dns.ClassINET, Ttl: record.Ttl}
 		r.Txt = split255(txt.Text)
 		answers = append(answers, r)
 	}
@@ -190,7 +202,7 @@ func (redis *Redis) NS(name string, zoneName string, record *record.Records, zon
 		}
 		r := new(dns.NS)
 		r.Hdr = dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeNS,
-			Class: dns.ClassINET, Ttl: redis.ttl(ns.Ttl)}
+			Class: dns.ClassINET, Ttl: record.Ttl}
 		r.Ns = ns.Host
 		answers = append(answers, r)
 		extras = append(extras, redis.getExtras(ns.Host, zoneName, conn)...)
@@ -205,7 +217,7 @@ func (redis *Redis) MX(name string, zoneName string, record *record.Records, zon
 		}
 		r := new(dns.MX)
 		r.Hdr = dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeMX,
-			Class: dns.ClassINET, Ttl: redis.ttl(mx.Ttl)}
+			Class: dns.ClassINET, Ttl: record.Ttl}
 		r.Mx = mx.Host
 		r.Preference = mx.Preference
 		answers = append(answers, r)
@@ -221,7 +233,7 @@ func (redis *Redis) SRV(name string, zoneName string, record *record.Records, zo
 		}
 		r := new(dns.SRV)
 		r.Hdr = dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeSRV,
-			Class: dns.ClassINET, Ttl: redis.ttl(srv.Ttl)}
+			Class: dns.ClassINET, Ttl: record.Ttl}
 		r.Target = srv.Target
 		r.Weight = srv.Weight
 		r.Port = srv.Port
@@ -239,7 +251,7 @@ func (redis *Redis) PTR(name string, zoneName string, record *record.Records, zo
 		}
 		r := new(dns.PTR)
 		r.Hdr = dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypePTR,
-			Class: dns.ClassINET, Ttl: redis.ttl(ptr.Ttl)}
+			Class: dns.ClassINET, Ttl: record.Ttl}
 		r.Ptr = ptr.Name
 		answers = append(answers, r)
 		extras = append(extras, redis.getExtras(ptr.Name, zoneName, conn)...)
@@ -278,22 +290,26 @@ func (redis *Redis) getExtras(name string, zoneName string, conn redisCon.Conn) 
 	if zoneRecords == nil {
 		return nil
 	}
-	a, _ := redis.A(name, zoneRecords)
+	a, _ := redis.A(name, zoneName, zoneRecords)
 	answers = append(answers, a...)
-	aaaa, _ := redis.AAAA(name, zoneRecords)
+	aaaa, _ := redis.AAAA(name, zoneName, zoneRecords)
 	answers = append(answers, aaaa...)
-	cname, _ := redis.CNAME(name, zoneRecords)
+	cname, _ := redis.CNAME(name, zoneName, zoneRecords)
 	answers = append(answers, cname...)
 	return answers
 }
 
-func (redis *Redis) ttl(ttl int) uint32 {
-	if ttl >= 0 {
-		return uint32(ttl)
+func (redis *Redis) ttl(zoneName string, ttl uint32) uint32 {
+	// While the DNS RFC allows for a TTL value of `0` to avoid
+	// caching, we explicitly disallow that.
+	if ttl > 0 {
+		return ttl
 	}
-	// todo: return SOA minTTL
+	if redis.MinZoneTtl[zoneName] > 0 {
+		return redis.MinZoneTtl[zoneName]
+	}
 	if redis.DefaultTtl >= 0 {
-		return uint32(redis.DefaultTtl)
+		return redis.DefaultTtl
 	}
 	return DefaultTtl
 }
@@ -350,9 +366,9 @@ func (redis *Redis) Connect() error {
 // LoadZoneRecord loads a zone record from the backend for a given zone
 func (redis *Redis) LoadZoneRecord(key string, zoneName string, conn redisCon.Conn) *record.Records {
 	var (
-		err   error
-		reply interface{}
-		val   string
+		err error
+		ttl int = -2
+		val string
 	)
 
 	var label string
@@ -362,19 +378,50 @@ func (redis *Redis) LoadZoneRecord(key string, zoneName string, conn redisCon.Co
 		label = key
 	}
 
-	reply, err = conn.Do("HGET", redis.Key(zoneName), label)
+	err = conn.Send("MULTI")
 	if err != nil {
+		log.Errorf("redis: could start a Redis MULTI transaction: %s", err)
 		return nil
 	}
-	val, err = redisCon.String(reply, nil)
+	err = conn.Send("HGET", redis.Key(zoneName), label)
 	if err != nil {
+		log.Errorf("redis: could not request a Redis HGET operation: %s", err)
 		return nil
 	}
+	ttlKey := redis.TtlKey(label, zoneName)
+	err = conn.Send("TTL", ttlKey)
+	if err != nil {
+		log.Errorf("redis: could not request a Redis TTL operation: %s", err)
+		return nil
+	}
+	values, err := redisCon.Values(conn.Do("EXEC"))
+	if err != nil {
+		log.Errorf("redis: error in EXEC: %s", err)
+		return nil
+	}
+	values, err = redisCon.Scan(values, &val, &ttl)
+	if err != nil {
+		log.Errorf("redis: error retrieving values: %s", err)
+		return nil
+	}
+
 	r := new(record.Records)
 	err = json.Unmarshal([]byte(val), r)
 	if err != nil {
-		fmt.Println("parse error : ", val, err)
+		log.Errorf("redis: error %s parsing %s", err, val)
 		return nil
+	}
+
+	if ttl == -2 {
+		// Insert a special TTL key in Redis for the DNS record
+		r.Ttl = redis.ttl(zoneName, r.Ttl)
+		_, err := conn.Do("SET", ttlKey, r.Ttl, "EX", r.Ttl)
+		if err != nil {
+			log.Errorf("redis: error %s when configuring TTL for %s.%s", err, label, zoneName)
+		}
+	} else {
+		// Yield the remaining TTL for the DNS record according to Redis
+		r.Ttl = uint32(ttl)
 	}
 
 	return r
@@ -433,6 +480,11 @@ func (redis *Redis) LoadZoneNamesC(name string, conn redisCon.Conn) ([]string, e
 // Key returns the given key with prefix and suffix
 func (redis *Redis) Key(zoneName string) string {
 	return redis.keyPrefix + dns.Fqdn(zoneName) + redis.keySuffix
+}
+
+// TtlKey returns the given key used to keep track of decreasing TTLs
+func (redis *Redis) TtlKey(location string, zoneName string) string {
+	return redis.keyPrefix + dns.Fqdn(zoneName) + redis.ttlSuffix + "/" + location
 }
 
 // reduceZoneName strips the zone down to top- and second-level

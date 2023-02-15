@@ -2,12 +2,13 @@ package plugin
 
 import (
 	"errors"
+	"strconv"
+	"time"
+
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
-	"github.com/grafanalf/coredns-redis"
-	"strconv"
-	"time"
+	redis "github.com/grafanalf/coredns-redis"
 )
 
 func init() { plugin.Register("redis", setup) }
@@ -79,6 +80,11 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 						return redis.New(), c.ArgErr()
 					}
 					r.SetKeySuffix(c.Val())
+				case "ttl_suffix":
+					if !c.NextArg() {
+						return redis.New(), c.ArgErr()
+					}
+					r.SetTtlSuffix(c.Val())
 				case "connect_timeout":
 					if !c.NextArg() {
 						return redis.New(), c.ArgErr()
@@ -101,10 +107,9 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 					}
 					t, err := strconv.Atoi(c.Val())
 					if err != nil {
-						r.SetDefaultTtl(redis.DefaultTtl)
-					} else {
-						r.SetDefaultTtl(t)
+						t = redis.DefaultTtl
 					}
+					r.SetDefaultTtl(uint32(t))
 				default:
 					if c.Val() != "}" {
 						return redis.New(), c.Errf("unknown property '%s'", c.Val())
