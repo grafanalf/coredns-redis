@@ -104,15 +104,12 @@ func (p *Plugin) startZoneNameCache() {
 		log.Info("zone name cache loaded")
 	}
 	go func() {
-		for {
-			select {
-			case <-p.loadZoneTicker.C:
-				if err := p.loadCache(); err != nil {
-					log.Fatalf("unable to cache zones: %s", err)
-					return
-				} else {
-					log.Infof("zone name cache refreshed (%v)", time.Now())
-				}
+		for range p.loadZoneTicker.C {
+			if err := p.loadCache(); err != nil {
+				log.Fatalf("unable to cache zones: %s", err)
+				return
+			} else {
+				log.Infof("zone name cache refreshed (%v)", time.Now())
 			}
 		}
 	}()
@@ -147,7 +144,7 @@ func (p *Plugin) loadCache() error {
 }
 
 func (p *Plugin) checkCache() {
-	if time.Now().Sub(p.lastRefresh).Seconds() > float64(redis.DefaultTtl*2) {
+	if time.Since(p.lastRefresh) > time.Duration(redis.DefaultTtl*2*time.Second) {
 		p.startZoneNameCache()
 	}
 }

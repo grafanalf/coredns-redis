@@ -257,13 +257,9 @@ func (redis *Redis) parseSOA(fields []string, recordName, zoneName string, heade
 }
 
 func (redis *Redis) parseRecordValuesFromString(recordType, recordName, zoneName, rData string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
-	var (
-		// array of string fiels as parsed from Redis
-		// e.g. ['200', 'IN', 'A', '1.2.3.4', ...]
-		fields []string
-	)
-
-	fields = strings.Fields(rData)
+	// array of string fiels as parsed from Redis
+	// e.g. ['200', 'IN', 'A', '1.2.3.4', ...]
+	fields := strings.Fields(rData)
 	if len(fields) < 4 {
 		err = fmt.Errorf("error parsing RData for %s/%s.%s: invalid number of elements", recordType, recordName, zoneName)
 		return
@@ -292,7 +288,7 @@ func (redis *Redis) parseRecordValuesFromString(recordType, recordName, zoneName
 	case "SOA":
 		answers, extras, err = redis.parseSOA(fields[3:], recordName, zoneName, header, conn)
 	default:
-		err = fmt.Errorf("Unknown record type %s", recordType)
+		err = fmt.Errorf("unknown record type %s", recordType)
 	}
 	return
 }
@@ -383,7 +379,7 @@ func (redis *Redis) LoadAllZoneNames() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i, _ := range zones {
+	for i := range zones {
 		zones[i] = strings.TrimPrefix(zones[i], redis.keyPrefix)
 		zones[i] = strings.TrimSuffix(zones[i], redis.keySuffix)
 	}
