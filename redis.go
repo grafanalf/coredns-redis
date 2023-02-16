@@ -3,6 +3,8 @@ package redis
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,8 +21,8 @@ const (
 	// the same value. Thats means that the TTL field should be moved
 	// from the R-data structs (e.g. `A`) for those RRs that allow
 	// multiple values.
-	DefaultTtl        = 3600
 	MaxTransferLength = 1000
+	DefaultTtl        = 3600
 )
 
 type Redis struct {
@@ -33,7 +35,6 @@ type Redis struct {
 	keyPrefix      string
 	keySuffix      string
 	ttlSuffix      string
-	DefaultTtl     uint32
 
 	MinZoneTtl map[string]uint32
 
@@ -83,11 +84,6 @@ func (redis *Redis) SetConnectTimeout(t int) {
 // SetReadTimeout sets a timeout in ms for redis read operations (optional)
 func (redis *Redis) SetReadTimeout(t int) {
 	redis.readTimeout = t
-}
-
-// SetDefaultTtl sets a default TTL for records in the redis backend (default 3600)
-func (redis *Redis) SetDefaultTtl(t uint32) {
-	redis.DefaultTtl = t
 }
 
 // Ping sends a "PING" command to the redis backend
@@ -300,18 +296,10 @@ func (redis *Redis) getExtras(name string, zoneName string, conn redisCon.Conn) 
 }
 
 func (redis *Redis) ttl(zoneName string, ttl uint32) uint32 {
-	// While the DNS RFC allows for a TTL value of `0` to avoid
-	// caching, we explicitly disallow that.
-	if ttl > 0 {
-		return ttl
-	}
-	if redis.MinZoneTtl[zoneName] > 0 {
+	if ttl < redis.MinZoneTtl[zoneName] {
 		return redis.MinZoneTtl[zoneName]
 	}
-	if redis.DefaultTtl >= 0 {
-		return redis.DefaultTtl
-	}
-	return DefaultTtl
+	return ttl
 }
 
 func (redis *Redis) FindLocation(query string, zoneName string) string {
@@ -363,6 +351,113 @@ func (redis *Redis) Connect() error {
 	return nil
 }
 
+func (redis *Redis) parseRecordValuesFromString(recordType, recordName, zoneName, rData string) (answers []dns.RR, err error) {
+	var (
+		// array of string fiels as parsed from Redis
+		// e.g. ['200', 'IN', 'A', '1.2.3.4', ...]
+		fields []string
+	)
+
+	fields = strings.Fields(rData)
+	if len(fields) < 4 {
+		err = fmt.Errorf("error parsing RData(%s) for %s.%s: invalid number of elements", recordType, recordName, zoneName)
+		return
+	}
+	if recordType != fields[2] {
+		err = fmt.Errorf("error: mismatch record type for %s.%s: %s != %s", recordName, zoneName, recordType, fields[2])
+		return
+	}
+	ttl, err := strconv.Atoi(fields[0])
+	if err != nil {
+		err = fmt.Errorf("error parsing TTL literal '%s': %s", fields[0], err)
+		return
+	}
+
+	header := dns.RR_Header{
+		Name:   dns.Fqdn(fmt.Sprintf("%s.%s", recordName, zoneName)),
+		Rrtype: dns.TypeA,
+		Class:  dns.ClassINET,
+		Ttl:    uint32(ttl),
+	}
+
+	switch recordType {
+	case "A":
+		// Produce a RRSet with at least one record, from potentially
+		// multiple IPv4 addresses
+		for _, ip := range fields[3:] {
+			r := new(dns.A)
+			r.Hdr = header
+			r.A = net.ParseIP(ip)
+			answers = append(answers, r)
+		}
+		return
+	}
+	err = fmt.Errorf("Unknown record type %s", recordType)
+	return
+}
+
+func (redis *Redis) LoadZoneRecord2(recordType, recordName, zoneName string, conn redisCon.Conn) ([]dns.RR, error) {
+	var (
+		rData        string // RR data
+		remainingTtl int    // remaining TTL (from Redis)
+	)
+
+	// SOA and NS queries for the actual zone name are stored
+	// in Redis (and in DNS files in general) as the `@` RR.
+	if recordName == zoneName {
+		recordName = "@"
+	}
+
+	err := conn.Send("MULTI")
+	if err != nil {
+		return nil, err
+	}
+	err = conn.Send("HGET", redis.Key2(zoneName), fmt.Sprintf("%s/%s", recordName, recordType))
+	if err != nil {
+		return nil, err
+	}
+	ttlKey := redis.TtlKey2(recordType, recordName, zoneName)
+	err = conn.Send("TTL", ttlKey)
+	if err != nil {
+		return nil, err
+	}
+	values, err := redisCon.Values(conn.Do("EXEC"))
+	if err != nil {
+		return nil, err
+	}
+	_, err = redisCon.Scan(values, &rData, &remainingTtl)
+	if err != nil {
+		return nil, err
+	}
+
+	answers, err := redis.parseRecordValuesFromString(recordType, recordName, zoneName, rData)
+	if err != nil {
+		return nil, err
+	}
+
+	// Support for monotonically decreasing TTLs
+	if remainingTtl == -2 {
+		// TTL shall be the same for all records in a RRset, so we
+		// take the first one
+		ttl := uint32(answers[0].Header().Ttl)
+		// If no Redis TTL key for the given DNS RRSet exists yet,
+		// insert a special TTL key in Redis for it
+		newTtl := redis.ttl(zoneName, ttl)
+		_, err := conn.Do("SET", ttlKey, newTtl, "EX", newTtl)
+		if err != nil {
+			return nil, fmt.Errorf("error configuring RData(%s)'s TTL for %s.%s: %s", recordType, recordName, zoneName, err)
+		}
+	} else {
+		// If a Redis TTL key for the given RRSet exists, yield
+		// the remaining TTL for it
+		for _, answer := range answers {
+			answer.Header().Ttl = uint32(remainingTtl)
+		}
+	}
+
+	return answers, nil
+}
+
 // LoadZoneRecord loads a zone record from the backend for a given zone
 func (redis *Redis) LoadZoneRecord(key string, zoneName string, conn redisCon.Conn) *record.Records {
 	var (
@@ -370,6 +465,13 @@ func (redis *Redis) LoadZoneRecord(key string, zoneName string, conn redisCon.Co
 		ttl int = -2
 		val string
 	)
+
+	x, err := redis.LoadZoneRecord2("A", key, zoneName, conn)
+	if err != nil {
+		log.Errorf("LoadZoneRecord2: %s", err)
+	} else {
+		fmt.Println(x)
+	}
 
 	var label string
 	if key == zoneName {
@@ -482,9 +584,19 @@ func (redis *Redis) Key(zoneName string) string {
 	return redis.keyPrefix + dns.Fqdn(zoneName) + redis.keySuffix
 }
 
+// Key2 returns the given key with prefix
+func (redis *Redis) Key2(zoneName string) string {
+	return redis.keyPrefix + zoneName
+}
+
 // TtlKey returns the given key used to keep track of decreasing TTLs
-func (redis *Redis) TtlKey(location string, zoneName string) string {
+func (redis *Redis) TtlKey(location, zoneName string) string {
 	return redis.keyPrefix + dns.Fqdn(zoneName) + redis.ttlSuffix + "/" + location
+}
+
+// TtlKey2 returns the given key used to keep track of decreasing TTLs
+func (redis *Redis) TtlKey2(recordType, recordName, zoneName string) string {
+	return redis.keyPrefix + zoneName + ":ttl:" + recordName + "/" + recordType
 }
 
 // reduceZoneName strips the zone down to top- and second-level

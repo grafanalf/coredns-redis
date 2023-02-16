@@ -27,7 +27,7 @@ func setup(c *caddy.Controller) error {
 
 	p := &Plugin{
 		Redis:          r,
-		loadZoneTicker: time.NewTicker(time.Duration(r.DefaultTtl) * time.Second),
+		loadZoneTicker: time.NewTicker(time.Duration(redis.DefaultTtl) * time.Second),
 	}
 	p.startZoneNameCache()
 
@@ -101,15 +101,6 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 					if err != nil {
 						r.SetReadTimeout(t)
 					}
-				case "ttl":
-					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
-					}
-					t, err := strconv.Atoi(c.Val())
-					if err != nil {
-						t = redis.DefaultTtl
-					}
-					r.SetDefaultTtl(uint32(t))
 				default:
 					if c.Val() != "}" {
 						return redis.New(), c.Errf("unknown property '%s'", c.Val())

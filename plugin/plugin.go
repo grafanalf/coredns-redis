@@ -73,39 +73,47 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 
 	conn = p.Redis.Pool.Get()
 	location := p.Redis.FindLocation(qName, zoneName)
-	answers := make([]dns.RR, 0, 0)
+	//answers := make([]dns.RR, 0, 0)
 	extras := make([]dns.RR, 0, 10)
-	zoneRecords := p.Redis.LoadZoneRecord(location, zoneName, conn)
-	if zoneRecords == nil {
+	recordType := dns.TypeToString[qType]
+	answers, err := p.Redis.LoadZoneRecord2(recordType, location, zoneName, conn)
+	if err != nil {
+		log.Error(err)
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
 	}
 
-	switch qType {
-	case dns.TypeSOA:
-		answers, extras = p.Redis.SOA(zoneName, zoneRecords)
-	case dns.TypeA:
-		answers, extras = p.Redis.A(qName, zoneName, zoneRecords)
-	case dns.TypeAAAA:
-		answers, extras = p.Redis.AAAA(qName, zoneName, zoneRecords)
-	case dns.TypeCNAME:
-		answers, extras = p.Redis.CNAME(qName, zoneName, zoneRecords)
-	case dns.TypeTXT:
-		answers, extras = p.Redis.TXT(qName, zoneName, zoneRecords)
-	case dns.TypeNS:
-		answers, extras = p.Redis.NS(qName, zoneName, zoneRecords, p.zones, conn)
-	case dns.TypeMX:
-		answers, extras = p.Redis.MX(qName, zoneName, zoneRecords, p.zones, conn)
-	case dns.TypeSRV:
-		answers, extras = p.Redis.SRV(qName, zoneName, zoneRecords, p.zones, conn)
-	case dns.TypePTR:
-		answers, extras = p.Redis.PTR(qName, zoneName, zoneRecords, p.zones, conn)
-	case dns.TypeCAA:
-		answers, extras = p.Redis.CAA(qName, zoneRecords)
+	/*
+		zoneRecords := p.Redis.LoadZoneRecord(location, zoneName, conn)
+		if zoneRecords == nil {
+			return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
+		}
 
-	default:
-		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeNotImplemented, nil)
-	}
+		switch qType {
+		case dns.TypeSOA:
+			answers, extras = p.Redis.SOA(zoneName, zoneRecords)
+		case dns.TypeA:
+			answers, extras = p.Redis.A(qName, zoneName, zoneRecords)
+		case dns.TypeAAAA:
+			answers, extras = p.Redis.AAAA(qName, zoneName, zoneRecords)
+		case dns.TypeCNAME:
+			answers, extras = p.Redis.CNAME(qName, zoneName, zoneRecords)
+		case dns.TypeTXT:
+			answers, extras = p.Redis.TXT(qName, zoneName, zoneRecords)
+		case dns.TypeNS:
+			answers, extras = p.Redis.NS(qName, zoneName, zoneRecords, p.zones, conn)
+		case dns.TypeMX:
+			answers, extras = p.Redis.MX(qName, zoneName, zoneRecords, p.zones, conn)
+		case dns.TypeSRV:
+			answers, extras = p.Redis.SRV(qName, zoneName, zoneRecords, p.zones, conn)
+		case dns.TypePTR:
+			answers, extras = p.Redis.PTR(qName, zoneName, zoneRecords, p.zones, conn)
+		case dns.TypeCAA:
+			answers, extras = p.Redis.CAA(qName, zoneRecords)
 
+		default:
+			return p.Redis.ErrorResponse(state, zoneName, dns.RcodeNotImplemented, nil)
+		}
+	*/
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Authoritative, m.RecursionAvailable, m.Compress = true, false, true
@@ -162,7 +170,7 @@ func (p *Plugin) loadCache() error {
 }
 
 func (p *Plugin) checkCache() {
-	if time.Now().Sub(p.lastRefresh).Seconds() > float64(p.Redis.DefaultTtl*2) {
+	if time.Now().Sub(p.lastRefresh).Seconds() > float64(redis.DefaultTtl*2) {
 		p.startZoneNameCache()
 	}
 }
