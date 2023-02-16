@@ -80,11 +80,6 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 						return redis.New(), c.ArgErr()
 					}
 					r.SetKeySuffix(c.Val())
-				case "ttl_suffix":
-					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
-					}
-					r.SetTtlSuffix(c.Val())
 				case "connect_timeout":
 					if !c.NextArg() {
 						return redis.New(), c.ArgErr()
