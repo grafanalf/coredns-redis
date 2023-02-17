@@ -165,7 +165,11 @@ func (redis *Redis) parseA(ips []string, recordName, zoneName string, header dns
 	var answers []dns.RR
 	for _, ip := range ips {
 		r := new(dns.A)
-		header.Name = dns.Fqdn(fmt.Sprintf("%s.%s", recordName, zoneName))
+		if recordName == "@" {
+			header.Name = zoneName
+		} else {
+			header.Name = dns.Fqdn(fmt.Sprintf("%s.%s", recordName, zoneName))
+		}
 		header.Rrtype = dns.TypeA
 		r.Hdr = header
 		r.A = net.ParseIP(ip)
