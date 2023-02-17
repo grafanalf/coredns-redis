@@ -73,9 +73,8 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	}
 
 	conn = p.Redis.Pool.Get()
-	location := p.Redis.FindLocation(qName, zoneName)
 	recordType := dns.TypeToString[qType]
-	answers, extras, err := p.Redis.LoadZoneRecords(recordType, location, zoneName, conn)
+	answers, extras, err := p.Redis.LoadZoneRecords(recordType, qName, zoneName, conn)
 	if err != nil {
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
 	}
@@ -106,7 +105,6 @@ func (p *Plugin) startZoneNameCache() {
 		for range p.loadZoneTicker.C {
 			if err := p.loadCache(); err != nil {
 				log.Fatalf("unable to cache zones: %s", err)
-				return
 			} else {
 				log.Infof("zone name cache refreshed (%v)", time.Now())
 			}
@@ -127,7 +125,7 @@ func (p *Plugin) loadCache() error {
 	p.Redis.MinZoneTtl = make(map[string]uint32)
 	for _, zone := range z {
 		conn := p.Redis.Pool.Get()
-		answers, _, err := p.Redis.LoadZoneRecords("SOA", "@", zone, conn)
+		answers, _, err := p.Redis.LoadZoneRecords("SOA", zone, zone, conn)
 		if err != nil {
 			return err
 		}

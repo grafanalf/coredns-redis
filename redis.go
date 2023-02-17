@@ -111,15 +111,6 @@ func (redis *Redis) ttl(zoneName string, ttl uint32) uint32 {
 	return ttl
 }
 
-func (redis *Redis) FindLocation(query string, zoneName string) string {
-	// requests for NS or SOA records
-	if query == zoneName {
-		return query
-	}
-
-	return strings.TrimSuffix(query, "."+zoneName)
-}
-
 // Connect establishes a connection to the redis-backend. The configuration must have
 // been done before.
 func (redis *Redis) Connect() error {
@@ -165,11 +156,7 @@ func (redis *Redis) parseA(ips []string, recordName, zoneName string, header dns
 	var answers []dns.RR
 	for _, ip := range ips {
 		r := new(dns.A)
-		if recordName == "@" {
-			header.Name = zoneName
-		} else {
-			header.Name = dns.Fqdn(fmt.Sprintf("%s.%s", recordName, zoneName))
-		}
+		header.Name = recordName
 		header.Rrtype = dns.TypeA
 		r.Hdr = header
 		r.A = net.ParseIP(ip)
@@ -181,19 +168,17 @@ func (redis *Redis) parseA(ips []string, recordName, zoneName string, header dns
 // Produce a RRSet with at least one record from each configured
 // nameserver, and additional records produced from resolving these
 // these nameserver to their IPv4 addresses.
-func (redis *Redis) parseNS(hosts []string, recordName, zoneName string, header dns.RR_Header, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
+func (redis *Redis) parseNS(hosts []string, zoneName string, header dns.RR_Header, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
 	for _, host := range hosts {
-		// Host specifications inside NS Rdata must not be fully qualified
-		// e.g. `300 IN NS ns1 ns2`
-		if dns.IsSubDomain(zoneName, host) {
-			err = fmt.Errorf("host `%s` from `NS/%s.%s` mustn't be fully qualified", host, recordName, zoneName)
-			return
-		}
 		r := new(dns.NS)
 		header.Name = zoneName
 		header.Rrtype = dns.TypeNS
 		r.Hdr = header
-		r.Ns = dns.Fqdn(fmt.Sprintf("%s.%s", host, zoneName))
+		if !dns.IsFqdn(host) {
+			err = fmt.Errorf("host %s musr be fully qualified", host)
+			return
+		}
+		r.Ns = host
 		answers = append(answers, r)
 		var additional []dns.RR
 		additional, err = redis.getAdditionalRecords(host, zoneName, conn)
@@ -207,17 +192,12 @@ func (redis *Redis) parseNS(hosts []string, recordName, zoneName string, header 
 
 // Produce a RRSet with one SOA record, and optional additional
 // records produced from resolving the NameServer.
-func (redis *Redis) parseSOA(fields []string, recordName, zoneName string, header dns.RR_Header, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
+func (redis *Redis) parseSOA(fields []string, zoneName string, header dns.RR_Header, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
 	r := new(dns.SOA)
 	header.Name = zoneName
 	header.Rrtype = dns.TypeSOA
 	r.Hdr = header
-
-	r.Ns, r.Mbox = fmt.Sprintf("%s.%s", fields[0], zoneName), fields[1]
-	if dns.IsSubDomain(zoneName, fields[0]) {
-		err = fmt.Errorf("host `%s` from `NS/%s.%s` mustn't be fully qualified", fields[0], recordName, zoneName)
-		return
-	}
+	r.Ns, r.Mbox = fields[0], fields[1]
 	if !dns.IsFqdn(r.Mbox) {
 		r.Mbox = fmt.Sprintf("%s.%s", r.Mbox, zoneName)
 	}
@@ -288,9 +268,9 @@ func (redis *Redis) parseRecordValuesFromString(recordType, recordName, zoneName
 	case "A":
 		answers = redis.parseA(fields[3:], recordName, zoneName, header)
 	case "NS":
-		answers, extras, err = redis.parseNS(fields[3:], recordName, zoneName, header, conn)
+		answers, extras, err = redis.parseNS(fields[3:], zoneName, header, conn)
 	case "SOA":
-		answers, extras, err = redis.parseSOA(fields[3:], recordName, zoneName, header, conn)
+		answers, extras, err = redis.parseSOA(fields[3:], zoneName, header, conn)
 	default:
 		err = fmt.Errorf("unknown record type %s", recordType)
 	}
@@ -310,26 +290,24 @@ func (redis *Redis) getAdditionalRecords(recordName, zoneName string, conn redis
 
 func (redis *Redis) LoadZoneRecords(recordType, recordName, zoneName string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
 	var (
+		keyName      string
+		ttlKeyName   string
 		rData        string // RR data
 		remainingTtl int    // remaining TTL (from Redis)
 	)
 
-	// SOA and NS queries for the actual zone name are stored
-	// in Redis (and in DNS files in general) as the `@` RR.
-	if recordName == zoneName {
-		recordName = "@"
-	}
+	keyName = fmt.Sprintf("%s/%s", recordType, recordName)
+	ttlKeyName = fmt.Sprintf("%s:ttl", keyName)
 
 	err = conn.Send("MULTI")
 	if err != nil {
 		return
 	}
-	err = conn.Send("HGET", redis.Key(zoneName), fmt.Sprintf("%s/%s", recordName, recordType))
+	err = conn.Send("GET", redis.Key(keyName))
 	if err != nil {
 		return
 	}
-	ttlKey := redis.TtlKey(recordType, recordName, zoneName)
-	err = conn.Send("TTL", ttlKey)
+	err = conn.Send("TTL", redis.Key(ttlKeyName))
 	if err != nil {
 		return
 	}
@@ -342,7 +320,7 @@ func (redis *Redis) LoadZoneRecords(recordType, recordName, zoneName string, con
 		return
 	}
 	if rData == "" {
-		err = fmt.Errorf("no RData for %s/%s.%s", recordType, recordName, zoneName)
+		err = fmt.Errorf("no RData for %s", keyName)
 		return
 	}
 	answers, extras, err = redis.parseRecordValuesFromString(recordType, recordName, zoneName, rData, conn)
@@ -358,9 +336,9 @@ func (redis *Redis) LoadZoneRecords(recordType, recordName, zoneName string, con
 		// If no Redis TTL key for the given DNS RRSet exists yet,
 		// insert a special TTL key in Redis for it
 		newTtl := redis.ttl(zoneName, ttl)
-		_, err = conn.Do("SET", ttlKey, newTtl, "EX", newTtl)
+		_, err = conn.Do("SET", redis.Key(ttlKeyName), newTtl, "EX", newTtl)
 		if err != nil {
-			err = fmt.Errorf("error configuring TTL for %s/%s.%s: %s", recordType, recordName, zoneName, err)
+			err = fmt.Errorf("error configuring TTL for %s: %s", keyName, err)
 			return
 		}
 	} else {
