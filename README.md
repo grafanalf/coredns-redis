@@ -14,6 +14,20 @@ grpc:grpc
 ...
 ```
 
+## Load-testing
+
+> dnsperf -d loadtest -s 0.0.0.0 -p 5300 -l 60 -Q 200
+
+Where `loadtest` is a loadtest file that looks like this:
+
+```
+foo.example.com.  A
+bar.example.com.  A
+example.com.      A
+example.com.      SOA
+example.com.      NS
+```
+
 ## configuration
 
 ```

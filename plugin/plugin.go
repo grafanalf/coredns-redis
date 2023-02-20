@@ -76,6 +76,7 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	recordType := dns.TypeToString[qType]
 	answers, extras, err := p.Redis.LoadZoneRecords(recordType, qName, zoneName, conn)
 	if err != nil {
+		log.Error(err)
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
 	}
 
