@@ -14,12 +14,7 @@ import (
 )
 
 const (
-	// As per DNS RFC, a set of RRs shall have all their TTLs set to
-	// the same value. Thats means that the TTL field should be moved
-	// from the R-data structs (e.g. `A`) for those RRs that allow
-	// multiple values.
-	MaxTransferLength = 1000
-	DefaultTtl        = 3600
+	DefaultTtl = 3600
 )
 
 type Redis struct {
