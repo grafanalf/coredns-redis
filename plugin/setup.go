@@ -3,7 +3,6 @@ package plugin
 import (
 	"errors"
 	"strconv"
-	"time"
 
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
@@ -25,11 +24,8 @@ func setup(c *caddy.Controller) error {
 		log.Infof("ping to redis ok")
 	}
 
-	p := &Plugin{
-		Redis:          r,
-		loadZoneTicker: time.NewTicker(time.Duration(redis.DefaultTtl) * time.Second),
-	}
-	p.startZoneNameCache()
+	p := &Plugin{Redis: r}
+	p.loadCache()
 
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		p.Next = next

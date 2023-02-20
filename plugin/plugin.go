@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -23,10 +22,9 @@ type Plugin struct {
 	Redis *redis.Redis
 	Next  plugin.Handler
 
-	loadZoneTicker *time.Ticker
-	zones          []string
-	lastRefresh    time.Time
-	lock           sync.Mutex
+	zones       []string
+	lastRefresh time.Time
+	lock        sync.Mutex
 }
 
 func (p *Plugin) Name() string {
@@ -67,16 +65,16 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	}
 
 	if zoneName == "" {
-		log.Debugf("zone not found: %s", qName)
+		log.Debugf("zone not loaded: %s", qName)
 		p.checkCache()
 		return plugin.NextOrFailure(qName, p.Next, ctx, w, r)
 	}
 
 	conn = p.Redis.Pool.Get()
-	location := p.Redis.FindLocation(qName, zoneName)
 	recordType := dns.TypeToString[qType]
-	answers, extras, err := p.Redis.LoadZoneRecords(recordType, location, zoneName, conn)
+	answers, extras, err := p.Redis.LoadZoneRecords(recordType, qName, zoneName, conn)
 	if err != nil {
+		log.Error(err)
 		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
 	}
 
@@ -95,25 +93,6 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	return dns.RcodeSuccess, nil
 }
 
-func (p *Plugin) startZoneNameCache() {
-
-	if err := p.loadCache(); err != nil {
-		log.Fatalf("unable to cache zones: %s", err)
-	} else {
-		log.Info("zone name cache loaded")
-	}
-	go func() {
-		for range p.loadZoneTicker.C {
-			if err := p.loadCache(); err != nil {
-				log.Fatalf("unable to cache zones: %s", err)
-				return
-			} else {
-				log.Infof("zone name cache refreshed (%v)", time.Now())
-			}
-		}
-	}()
-}
-
 func (p *Plugin) loadCache() error {
 	z, err := p.Redis.LoadAllZoneNames()
 	if err != nil {
@@ -122,21 +101,6 @@ func (p *Plugin) loadCache() error {
 	sort.Strings(z)
 	p.lock.Lock()
 	p.zones = z
-
-	// Cache min TTL for every DNS zone from Redis
-	p.Redis.MinZoneTtl = make(map[string]uint32)
-	for _, zone := range z {
-		conn := p.Redis.Pool.Get()
-		answers, _, err := p.Redis.LoadZoneRecords("SOA", "@", zone, conn)
-		if err != nil {
-			return err
-		}
-		if len(answers) != 1 {
-			return fmt.Errorf("invalid resppnse for SOA/@.%s", zone)
-		}
-		p.Redis.MinZoneTtl[zone] = answers[0].(*dns.SOA).Minttl
-	}
-
 	p.lastRefresh = time.Now()
 	p.lock.Unlock()
 	return nil
@@ -144,6 +108,8 @@ func (p *Plugin) loadCache() error {
 
 func (p *Plugin) checkCache() {
 	if time.Since(p.lastRefresh) > time.Duration(redis.DefaultTtl*2*time.Second) {
-		p.startZoneNameCache()
+		if err := p.loadCache(); err != nil {
+			log.Fatalf("unable to cache zones: %s", err)
+		}
 	}
 }
