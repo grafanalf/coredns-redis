@@ -31,8 +31,6 @@ type Redis struct {
 	readTimeout    int
 	keyPrefix      string
 	keySuffix      string
-
-	MinZoneTtl map[string]uint32
 }
 
 func New() *Redis {
@@ -46,6 +44,7 @@ func (redis *Redis) SetAddress(a string) {
 
 // SetUsername sets the username for the redis connection (optional)
 func (redis Redis) SetUsername(u string) {
+	//lint:ignore SA4005 incorrect warning
 	redis.username = u
 }
 
@@ -102,13 +101,6 @@ func (redis *Redis) ErrorResponse(state request.Request, zone string, rcode int,
 	_ = state.W.WriteMsg(m)
 	// Return success as the rcode to signal we have written to the client.
 	return dns.RcodeSuccess, err
-}
-
-func (redis *Redis) ttl(zoneName string, ttl uint32) uint32 {
-	if ttl < redis.MinZoneTtl[zoneName] {
-		return redis.MinZoneTtl[zoneName]
-	}
-	return ttl
 }
 
 // Connect establishes a connection to the redis-backend. The configuration must have
@@ -332,10 +324,9 @@ func (redis *Redis) LoadZoneRecords(recordType, recordName, zoneName string, con
 	if remainingTtl == -2 {
 		// TTL shall be the same for all records in a RRset, so we
 		// take the first one
-		ttl := uint32(answers[0].Header().Ttl)
+		newTtl := uint32(answers[0].Header().Ttl)
 		// If no Redis TTL key for the given DNS RRSet exists yet,
 		// insert a special TTL key in Redis for it
-		newTtl := redis.ttl(zoneName, ttl)
 		_, err = conn.Do("SET", redis.Key(ttlKeyName), newTtl, "EX", newTtl)
 		if err != nil {
 			err = fmt.Errorf("error configuring TTL for %s: %s", keyName, err)
