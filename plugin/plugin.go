@@ -2,14 +2,11 @@ package plugin
 
 import (
 	"context"
-	"sort"
-	"sync"
-	"time"
+	"strings"
 
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
-	redisCon "github.com/gomodule/redigo/redis"
 	redis "github.com/grafanalf/coredns-redis"
 	"github.com/miekg/dns"
 )
@@ -21,10 +18,6 @@ var log = clog.NewWithPlugin("redis")
 type Plugin struct {
 	Redis *redis.Redis
 	Next  plugin.Handler
-
-	zones       []string
-	lastRefresh time.Time
-	lock        sync.Mutex
 }
 
 func (p *Plugin) Name() string {
@@ -48,34 +41,22 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 		return plugin.NextOrFailure(qName, p.Next, ctx, w, r)
 	}
 
-	var conn redisCon.Conn
-	defer func() {
-		if conn == nil {
-			return
-		}
-		_ = conn.Close()
-	}()
-
-	var zoneName string
-	x := sort.SearchStrings(p.zones, qName)
-	if x >= 0 && x < len(p.zones) && p.zones[x] == qName {
-		zoneName = p.zones[x]
-	} else {
-		zoneName = plugin.Zones(p.zones).Matches(qName)
-	}
-
-	if zoneName == "" {
-		log.Debugf("zone not loaded: %s", qName)
-		p.checkCache()
+	if !strings.HasSuffix(qName, p.Redis.Zone) {
+		log.Debugf("unsupported zone for query %s", qName)
 		return plugin.NextOrFailure(qName, p.Next, ctx, w, r)
 	}
 
-	conn = p.Redis.Pool.Get()
+	conn := p.Redis.Pool.Get()
+	if conn == nil {
+		log.Fatal("could not get a Redis connection")
+	}
+	defer conn.Close()
+
 	recordType := dns.TypeToString[qType]
-	answers, extras, err := p.Redis.LoadZoneRecords(recordType, qName, zoneName, conn)
+	answers, extras, err := p.Redis.LoadZoneRecords(recordType, qName, conn)
 	if err != nil {
 		log.Error(err)
-		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
+		return p.Redis.ErrorResponse(state, qName, dns.RcodeServerFailure, nil)
 	}
 
 	m := new(dns.Msg)
@@ -88,28 +69,7 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	err = w.WriteMsg(m)
 	if err != nil {
 		log.Error(err)
-		return p.Redis.ErrorResponse(state, zoneName, dns.RcodeServerFailure, nil)
+		return p.Redis.ErrorResponse(state, qName, dns.RcodeServerFailure, nil)
 	}
 	return dns.RcodeSuccess, nil
-}
-
-func (p *Plugin) loadCache() error {
-	z, err := p.Redis.LoadAllZoneNames()
-	if err != nil {
-		return err
-	}
-	sort.Strings(z)
-	p.lock.Lock()
-	p.zones = z
-	p.lastRefresh = time.Now()
-	p.lock.Unlock()
-	return nil
-}
-
-func (p *Plugin) checkCache() {
-	if time.Since(p.lastRefresh) > time.Duration(redis.DefaultTtl*2*time.Second) {
-		if err := p.loadCache(); err != nil {
-			log.Fatalf("unable to cache zones: %s", err)
-		}
-	}
 }

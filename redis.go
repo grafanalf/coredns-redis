@@ -19,6 +19,7 @@ const (
 
 type Redis struct {
 	Pool           *redisCon.Pool
+	Zone           string
 	address        string
 	username       string
 	password       string
@@ -28,8 +29,8 @@ type Redis struct {
 	keySuffix      string
 }
 
-func New() *Redis {
-	return &Redis{}
+func New(zone string) *Redis {
+	return &Redis{Zone: dns.Fqdn(zone)}
 }
 
 // SetAddress sets the address (host:port) to the redis backend
@@ -39,7 +40,6 @@ func (redis *Redis) SetAddress(a string) {
 
 // SetUsername sets the username for the redis connection (optional)
 func (redis Redis) SetUsername(u string) {
-	//lint:ignore SA4005 incorrect warning
 	redis.username = u
 }
 
@@ -51,11 +51,6 @@ func (redis *Redis) SetPassword(p string) {
 // SetKeyPrefix sets a prefix for all redis-keys (optional)
 func (redis *Redis) SetKeyPrefix(p string) {
 	redis.keyPrefix = p
-}
-
-// SetKeySuffix sets a suffix for all redis-keys (optional)
-func (redis *Redis) SetKeySuffix(s string) {
-	redis.keySuffix = s
 }
 
 // SetConnectTimeout sets a timeout in ms for the connection setup (optional)
@@ -139,7 +134,7 @@ func (redis *Redis) Connect() error {
 }
 
 // Produce a RRSet with at least one record, from potentially multiple IPv4 addresses
-func (redis *Redis) parseA(ips []string, recordName, zoneName string, header dns.RR_Header) []dns.RR {
+func (redis *Redis) parseA(ips []string, recordName string, header dns.RR_Header) []dns.RR {
 	var answers []dns.RR
 	for _, ip := range ips {
 		r := new(dns.A)
@@ -168,7 +163,7 @@ func (redis *Redis) parseNS(hosts []string, zoneName string, header dns.RR_Heade
 		r.Ns = host
 		answers = append(answers, r)
 		var additional []dns.RR
-		additional, err = redis.getAdditionalRecords(host, zoneName, conn)
+		additional, err = redis.getAdditionalRecords(host, conn)
 		if err != nil {
 			return
 		}
@@ -217,7 +212,7 @@ func (redis *Redis) parseSOA(fields []string, zoneName string, header dns.RR_Hea
 
 	// Append any additional records which might be produced
 	// by resolving the SOA's record nameserver.
-	additional, err := redis.getAdditionalRecords(fields[0], zoneName, conn)
+	additional, err := redis.getAdditionalRecords(fields[0], conn)
 	if err != nil {
 		return
 	}
@@ -227,16 +222,16 @@ func (redis *Redis) parseSOA(fields []string, zoneName string, header dns.RR_Hea
 	return
 }
 
-func (redis *Redis) parseRecordValuesFromString(recordType, recordName, zoneName, rData string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
+func (redis *Redis) parseRecordValuesFromString(recordType, recordName, rData string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
 	// array of string fiels as parsed from Redis
 	// e.g. ['200', 'IN', 'A', '1.2.3.4', ...]
 	fields := strings.Fields(rData)
 	if len(fields) < 4 {
-		err = fmt.Errorf("error parsing RData for %s/%s.%s: invalid number of elements", recordType, recordName, zoneName)
+		err = fmt.Errorf("error parsing RData for %s/%s: invalid number of elements", recordType, recordName)
 		return
 	}
 	if recordType != fields[2] {
-		err = fmt.Errorf("error: mismatch record type for %s.%s: %s != %s", recordName, zoneName, recordType, fields[2])
+		err = fmt.Errorf("error: mismatch record type for %s: %s != %s", recordName, recordType, fields[2])
 		return
 	}
 	ttl, err := strconv.Atoi(fields[0])
@@ -253,29 +248,29 @@ func (redis *Redis) parseRecordValuesFromString(recordType, recordName, zoneName
 
 	switch recordType {
 	case "A":
-		answers = redis.parseA(fields[3:], recordName, zoneName, header)
+		answers = redis.parseA(fields[3:], recordName, header)
 	case "NS":
-		answers, extras, err = redis.parseNS(fields[3:], zoneName, header, conn)
+		answers, extras, err = redis.parseNS(fields[3:], recordName, header, conn)
 	case "SOA":
-		answers, extras, err = redis.parseSOA(fields[3:], zoneName, header, conn)
+		answers, extras, err = redis.parseSOA(fields[3:], recordName, header, conn)
 	default:
 		err = fmt.Errorf("unknown record type %s", recordType)
 	}
 	return
 }
 
-func (redis *Redis) getAdditionalRecords(recordName, zoneName string, conn redisCon.Conn) (answers []dns.RR, err error) {
-	answers, extras, err := redis.LoadZoneRecords("A", recordName, zoneName, conn)
+func (redis *Redis) getAdditionalRecords(recordName string, conn redisCon.Conn) (answers []dns.RR, err error) {
+	answers, extras, err := redis.LoadZoneRecords("A", recordName, conn)
 	if err == nil {
 		if len(extras) > 0 {
-			err = fmt.Errorf("unexpected additional resources for A/%s.%s", recordName, zoneName)
+			err = fmt.Errorf("unexpected additional resources for A/%s", recordName)
 			return
 		}
 	}
 	return
 }
 
-func (redis *Redis) LoadZoneRecords(recordType, recordName, zoneName string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
+func (redis *Redis) LoadZoneRecords(recordType, recordName string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
 	var (
 		keyName      string
 		ttlKeyName   string
@@ -310,7 +305,7 @@ func (redis *Redis) LoadZoneRecords(recordType, recordName, zoneName string, con
 		err = fmt.Errorf("no RData for %s", keyName)
 		return
 	}
-	answers, extras, err = redis.parseRecordValuesFromString(recordType, recordName, zoneName, rData, conn)
+	answers, extras, err = redis.parseRecordValuesFromString(recordType, recordName, rData, conn)
 	if err != nil {
 		return
 	}

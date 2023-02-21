@@ -25,8 +25,6 @@ func setup(c *caddy.Controller) error {
 	}
 
 	p := &Plugin{Redis: r}
-	p.loadCache()
-
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		p.Next = next
 		return p
@@ -39,46 +37,41 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 
 	if c.Next() {
 		if c.Val() != "redis" {
-			return redis.New(), c.ArgErr()
+			return nil, c.ArgErr()
 		}
 		if !c.NextArg() {
-			return redis.New(), c.ArgErr()
+			return nil, c.ArgErr()
 		}
-		log.Infof("redis: configure Redis support for domain '%s'", c.Val())
+		log.Infof("redis: configured Redis support for domain '%s'", c.Val())
 
-		r := redis.New()
+		r := redis.New(c.Val())
 		if c.NextBlock() {
 			for {
 				switch c.Val() {
 				case "address":
 					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
+						return nil, c.ArgErr()
 					}
 					r.SetAddress(c.Val())
 
 				case "username":
 					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
+						return nil, c.ArgErr()
 					}
 					r.SetUsername(c.Val())
 				case "password":
 					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
+						return nil, c.ArgErr()
 					}
 					r.SetPassword(c.Val())
 				case "prefix":
 					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
+						return nil, c.ArgErr()
 					}
 					r.SetKeyPrefix(c.Val())
-				case "suffix":
-					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
-					}
-					r.SetKeySuffix(c.Val())
 				case "connect_timeout":
 					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
+						return nil, c.ArgErr()
 					}
 					t, err := strconv.Atoi(c.Val())
 					if err == nil {
@@ -86,7 +79,7 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 					}
 				case "read_timeout":
 					if !c.NextArg() {
-						return redis.New(), c.ArgErr()
+						return nil, c.ArgErr()
 					}
 					t, err := strconv.Atoi(c.Val())
 					if err != nil {
@@ -94,7 +87,7 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 					}
 				default:
 					if c.Val() != "}" {
-						return redis.New(), c.Errf("unknown property '%s'", c.Val())
+						return nil, c.Errf("unknown property '%s'", c.Val())
 					}
 				}
 

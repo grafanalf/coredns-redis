@@ -40,7 +40,6 @@ example.com.      NS
     read_timeout TIME_MS
     ttl TIME_S
     prefix PREFIX
-    suffix SUFFIX
   }
 }
 ```
@@ -52,7 +51,6 @@ example.com.      NS
 - `read_timeout` maximum time to wait for the redis backend to respond (in ms, optional)
 - `ttl` default ttl for dns records which have no ttl set (in seconds, default 3600)
 - `prefix` a prefix added to all redis keys
-- `suffix` a suffix added to all redis keys
 
 ### example
 
@@ -68,7 +66,6 @@ corefile:
       read_timeout 2000
       ttl 300
       prefix DNS_
-      suffix _DNS
     }
   }
 }
