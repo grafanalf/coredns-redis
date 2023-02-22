@@ -29,6 +29,10 @@ func setup(c *caddy.Controller) error {
 		return fmt.Errorf("Redis PING failed")
 	}
 
+	log.Infof("redis: Pool.MaxActive=%d", r.maxActive)
+	log.Infof("redis: Pool.MaxIdle=%d", r.maxIdle)
+	log.Infof("redis: Pool.IdleTimeout=%d", r.idleTimeout)
+
 	p := &Plugin{Redis: r}
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		p.Next = next

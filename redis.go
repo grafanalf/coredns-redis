@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 
@@ -119,11 +118,6 @@ func (redis *Redis) ErrorResponse(state request.Request, zone string, rcode int,
 // (subscribed to pubsub channel, transaction started, ...).
 func (redis *Redis) Dial() (redisCon.Conn, error) {
 	var opts []redisCon.DialOption
-
-	log.Infof("redis: Pool.MaxActive=%d", redis.maxActive)
-	log.Infof("redis: Pool.MaxIdle=%d", redis.maxIdle)
-	log.Infof("redis: Pool.IdleTimeout=%d", redis.idleTimeout)
-
 	if redis.connectTimeout > 0 {
 		opts = append(
 			opts,
