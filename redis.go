@@ -115,88 +115,56 @@ func (redis *Redis) ErrorResponse(state request.Request, zone string, rcode int,
 	return dns.RcodeSuccess, err
 }
 
-func (redis *Redis) InitPool() error {
+// The connection returned from Dial() must not be in a special state
+// (subscribed to pubsub channel, transaction started, ...).
+func (redis *Redis) Dial() (redisCon.Conn, error) {
+	var opts []redisCon.DialOption
+
 	log.Infof("redis: Pool.MaxActive=%d", redis.maxActive)
 	log.Infof("redis: Pool.MaxIdle=%d", redis.maxIdle)
 	log.Infof("redis: Pool.IdleTimeout=%d", redis.idleTimeout)
 
+	if redis.connectTimeout > 0 {
+		opts = append(
+			opts,
+			redisCon.DialConnectTimeout(
+				time.Duration(redis.connectTimeout)*time.Millisecond,
+			),
+		)
+	}
+	if redis.readTimeout > 0 {
+		opts = append(
+			opts,
+			redisCon.DialReadTimeout(
+				time.Duration(redis.readTimeout)*time.Millisecond,
+			),
+		)
+	}
+
+	c, err := redisCon.Dial("tcp", redis.address, opts...)
+	if err != nil {
+		return nil, err
+	}
+	if redis.password != "" {
+		if _, err := c.Do("AUTH", redis.password); err != nil {
+			c.Close()
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
+func (redis *Redis) InitPool() (bool, error) {
 	redis.Pool = &redisCon.Pool{
 		MaxIdle:     redis.maxIdle,
 		IdleTimeout: redis.idleTimeout,
 		MaxActive:   redis.maxActive,
-
+		Dial:        redis.Dial,
 		// When the pool is at the `MaxActive` limit, then Get() waits for a
 		// connection to be returned to the pool before returning.
 		// Wait: true,
-
-		// The connection returned from Dial() must not be in a special state
-		// (subscribed to pubsub channel, transaction started, ...).
-		Dial: func() (redisCon.Conn, error) {
-			c, err := redisCon.Dial("tcp", redis.address)
-			if err != nil {
-				return nil, err
-			}
-			if redis.password != "" {
-				if _, err := c.Do("AUTH", redis.password); err != nil {
-					c.Close()
-					return nil, err
-				}
-			}
-			return c, nil
-		},
-
-		// Test the connection is working if idle for more than 1m
-		TestOnBorrow: func(c redisCon.Conn, t time.Time) error {
-			if time.Since(t) < time.Minute {
-				return nil
-			}
-			_, err := c.Do("PING")
-			return err
-		},
 	}
-
-	_, err := redis.Ping()
-	return err
-}
-
-// Connect establishes a connection to the redis-backend. The configuration must have
-// been done before.
-func (redis *Redis) Connect() error {
-	redis.Pool = &redisCon.Pool{
-		Dial: func() (redisCon.Conn, error) {
-			var opts []redisCon.DialOption
-			if redis.username != "" {
-				opts = append(opts, redisCon.DialUsername(redis.username))
-			}
-			if redis.password != "" {
-				opts = append(opts, redisCon.DialPassword(redis.password))
-			}
-			if redis.connectTimeout != 0 {
-				opts = append(opts, redisCon.DialConnectTimeout(time.Duration(redis.connectTimeout)*time.Millisecond))
-			}
-			if redis.readTimeout != 0 {
-				opts = append(opts, redisCon.DialReadTimeout(time.Duration(redis.readTimeout)*time.Millisecond))
-			}
-
-			return redisCon.Dial("tcp", redis.address, opts...)
-		},
-	}
-	c := redis.Pool.Get()
-	defer c.Close()
-
-	if c.Err() != nil {
-		return c.Err()
-	}
-
-	res, err := c.Do("PING")
-	pong, err := redisCon.String(res, err)
-	if err != nil {
-		return err
-	}
-	if pong != "PONG" {
-		return fmt.Errorf("unexpexted result, 'PONG' expected: %s", pong)
-	}
-	return nil
+	return redis.Ping()
 }
 
 // Produce a RRSet with at least one record, from potentially multiple IPv4 addresses

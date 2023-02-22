@@ -2,6 +2,7 @@ package redis
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/coredns/caddy"
@@ -20,9 +21,12 @@ func setup(c *caddy.Controller) error {
 		return err
 	}
 
-	err = r.InitPool()
+	ping, err := r.InitPool()
 	if err != nil {
 		return err
+	}
+	if !ping {
+		return fmt.Errorf("Redis PING failed")
 	}
 
 	p := &Plugin{Redis: r}
