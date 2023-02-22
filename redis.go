@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 
@@ -25,6 +26,9 @@ type Redis struct {
 	password       string
 	connectTimeout int
 	readTimeout    int
+	idleTimeout    time.Duration
+	maxActive      int
+	maxIdle        int
 	keyPrefix      string
 	keySuffix      string
 }
@@ -63,6 +67,24 @@ func (redis *Redis) SetReadTimeout(t int) {
 	redis.readTimeout = t
 }
 
+// Closes connections after remaining idle for this duration. If the value
+// is zero, then idle connections are not closed. Applications should set
+// the timeout to a value less than the server's timeout.
+func (redis *Redis) SetIdleTimeOut(seconds int) {
+	redis.idleTimeout = time.Duration(seconds) * time.Second
+}
+
+// Maximum number of connections allocated by the pool at a given time.
+// When zero, there is no limit on the number of connections in the pool.
+func (redis *Redis) SetMaxActive(maxActive int) {
+	redis.maxActive = maxActive
+}
+
+// Maximum number of idle connections in the pool.
+func (redis *Redis) SetMaxIdle(maxIdle int) {
+	redis.maxIdle = maxIdle
+}
+
 // Ping sends a "PING" command to the redis backend
 // and returns (true, nil) if redis response
 // is 'PONG'. Otherwise Ping return false and
@@ -91,6 +113,50 @@ func (redis *Redis) ErrorResponse(state request.Request, zone string, rcode int,
 	_ = state.W.WriteMsg(m)
 	// Return success as the rcode to signal we have written to the client.
 	return dns.RcodeSuccess, err
+}
+
+func (redis *Redis) InitPool() error {
+	log.Infof("redis: Pool.MaxActive=%d", redis.maxActive)
+	log.Infof("redis: Pool.MaxIdle=%d", redis.maxIdle)
+	log.Infof("redis: Pool.IdleTimeout=%d", redis.idleTimeout)
+
+	redis.Pool = &redisCon.Pool{
+		MaxIdle:     redis.maxIdle,
+		IdleTimeout: redis.idleTimeout,
+		MaxActive:   redis.maxActive,
+
+		// When the pool is at the `MaxActive` limit, then Get() waits for a
+		// connection to be returned to the pool before returning.
+		// Wait: true,
+
+		// The connection returned from Dial() must not be in a special state
+		// (subscribed to pubsub channel, transaction started, ...).
+		Dial: func() (redisCon.Conn, error) {
+			c, err := redisCon.Dial("tcp", redis.address)
+			if err != nil {
+				return nil, err
+			}
+			if redis.password != "" {
+				if _, err := c.Do("AUTH", redis.password); err != nil {
+					c.Close()
+					return nil, err
+				}
+			}
+			return c, nil
+		},
+
+		// Test the connection is working if idle for more than 1m
+		TestOnBorrow: func(c redisCon.Conn, t time.Time) error {
+			if time.Since(t) < time.Minute {
+				return nil
+			}
+			_, err := c.Do("PING")
+			return err
+		},
+	}
+
+	_, err := redis.Ping()
+	return err
 }
 
 // Connect establishes a connection to the redis-backend. The configuration must have

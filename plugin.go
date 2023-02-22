@@ -1,22 +1,20 @@
-package plugin
+package redis
 
 import (
 	"context"
 	"strings"
 
 	"github.com/coredns/coredns/plugin"
-	clog "github.com/coredns/coredns/plugin/pkg/log"
+	"github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
-	redis "github.com/grafanalf/coredns-redis"
+
 	"github.com/miekg/dns"
 )
 
 const name = "redis"
 
-var log = clog.NewWithPlugin("redis")
-
 type Plugin struct {
-	Redis *redis.Redis
+	Redis *Redis
 	Next  plugin.Handler
 }
 

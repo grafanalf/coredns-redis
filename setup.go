@@ -1,4 +1,4 @@
-package plugin
+package redis
 
 import (
 	"errors"
@@ -7,10 +7,12 @@ import (
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
-	redis "github.com/grafanalf/coredns-redis"
+	"github.com/coredns/coredns/plugin/pkg/log"
 )
 
-func init() { plugin.Register("redis", setup) }
+func init() {
+	plugin.Register("redis", setup)
+}
 
 func setup(c *caddy.Controller) error {
 	r, err := redisParse(c)
@@ -18,10 +20,9 @@ func setup(c *caddy.Controller) error {
 		return err
 	}
 
-	if ok, err := r.Ping(); err != nil || !ok {
-		return plugin.Error("redis", err)
-	} else if ok {
-		log.Infof("ping to redis ok")
+	err = r.InitPool()
+	if err != nil {
+		return err
 	}
 
 	p := &Plugin{Redis: r}
@@ -33,7 +34,7 @@ func setup(c *caddy.Controller) error {
 	return nil
 }
 
-func redisParse(c *caddy.Controller) (*redis.Redis, error) {
+func redisParse(c *caddy.Controller) (*Redis, error) {
 
 	if c.Next() {
 		if c.Val() != "redis" {
@@ -42,9 +43,9 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 		if !c.NextArg() {
 			return nil, c.ArgErr()
 		}
-		log.Infof("redis: configured Redis support for domain '%s'", c.Val())
 
-		r := redis.New(c.Val())
+		log.Infof("redis: configuring Redis support for domain %s", c.Val())
+		r := New(c.Val())
 		if c.NextBlock() {
 			for {
 				switch c.Val() {
@@ -85,6 +86,33 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 					if err != nil {
 						r.SetReadTimeout(t)
 					}
+				case "idle_timeout":
+					if !c.NextArg() {
+						return nil, c.ArgErr()
+					}
+					t, err := strconv.Atoi(c.Val())
+					if err != nil {
+						return nil, c.ArgErr()
+					}
+					r.SetIdleTimeOut(t)
+				case "max_active":
+					if !c.NextArg() {
+						return nil, c.ArgErr()
+					}
+					t, err := strconv.Atoi(c.Val())
+					if err != nil {
+						return nil, c.ArgErr()
+					}
+					r.SetMaxActive(t)
+				case "max_idle":
+					if !c.NextArg() {
+						return nil, c.ArgErr()
+					}
+					t, err := strconv.Atoi(c.Val())
+					if err != nil {
+						return nil, c.ArgErr()
+					}
+					r.SetMaxIdle(t)
 				default:
 					if c.Val() != "}" {
 						return nil, c.Errf("unknown property '%s'", c.Val())
@@ -97,8 +125,7 @@ func redisParse(c *caddy.Controller) (*redis.Redis, error) {
 			}
 		}
 
-		err := r.Connect()
-		return r, err
+		return r, nil
 	}
 
 	return nil, errors.New("no configuration found")
