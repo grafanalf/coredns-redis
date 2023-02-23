@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/pkg/log"
@@ -70,4 +71,23 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 		return p.Redis.ErrorResponse(state, qName, dns.RcodeServerFailure, nil)
 	}
 	return dns.RcodeSuccess, nil
+}
+
+// Update statistics about Redis Pools periodically
+func (p *Plugin) updateRedisPoolStats(period time.Duration) {
+	t := time.NewTicker(period)
+	defer t.Stop()
+	for {
+		<-t.C
+		redisPoolStats.WithLabelValues(
+			p.Redis.hostName,
+			p.Redis.Zone, "ActiveCount",
+		).Set(float64(p.Redis.Pool.Stats().ActiveCount))
+		redisPoolStats.WithLabelValues(
+			p.Redis.hostName,
+			p.Redis.Zone,
+			"IdleCount",
+		).Set(float64(p.Redis.Pool.Stats().IdleCount))
+		log.Debug("Updated Redis Pool Stats")
+	}
 }

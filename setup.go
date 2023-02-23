@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
@@ -29,11 +30,12 @@ func setup(c *caddy.Controller) error {
 		return fmt.Errorf("Redis PING failed")
 	}
 
-	log.Infof("redis: Pool.MaxActive=%d", r.maxActive)
-	log.Infof("redis: Pool.MaxIdle=%d", r.maxIdle)
-	log.Infof("redis: Pool.IdleTimeout=%d", r.idleTimeout)
+	log.Infof("redis: Pool(\"%s\").MaxActive=%d", r.Zone, r.maxActive)
+	log.Infof("redis: Pool(\"%s\").MaxIdle=%d", r.Zone, r.maxIdle)
+	log.Infof("redis: Pool(\"%s\").IdleTimeout=%d", r.Zone, r.idleTimeout)
 
 	p := &Plugin{Redis: r}
+	go p.updateRedisPoolStats(10 * time.Second)
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		p.Next = next
 		return p
