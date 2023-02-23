@@ -171,6 +171,18 @@ func (redis *Redis) InitPool() (bool, error) {
 		// When the pool is at the `MaxActive` limit, then Get() waits for a
 		// connection to be returned to the pool before returning.
 		// Wait: true,
+
+		// TestOnBorrow is a supplied function for checking the health of
+		// an idle connection before the connection is used again. `t` is
+		// the time that the connection was returned to the pool. If the
+		// function returns an error, then the connection is closed.
+		TestOnBorrow: func(c redisCon.Conn, t time.Time) error {
+			if time.Since(t) < time.Minute {
+				return nil
+			}
+			_, err := redis.Ping()
+			return err
+		},
 	}
 	return redis.Ping()
 }
