@@ -3,10 +3,12 @@ package redis
 import (
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 
@@ -19,6 +21,7 @@ const (
 
 type Redis struct {
 	Pool           *redisCon.Pool
+	hostName       string
 	Zone           string
 	address        string
 	username       string
@@ -33,7 +36,14 @@ type Redis struct {
 }
 
 func New(zone string) *Redis {
-	return &Redis{Zone: dns.Fqdn(zone)}
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Errorf("Unable to retrieve hostname: %s", err)
+	}
+	return &Redis{
+		hostName: hostname,
+		Zone:     dns.Fqdn(zone),
+	}
 }
 
 // SetAddress sets the address (host:port) to the redis backend
@@ -135,10 +145,14 @@ func (redis *Redis) Dial() (redisCon.Conn, error) {
 		)
 	}
 
+	redisDialCount.WithLabelValues(redis.hostName, redis.Zone).Inc()
 	c, err := redisCon.Dial("tcp", redis.address, opts...)
 	if err != nil {
+		redisDialErrorCount.WithLabelValues(redis.hostName, redis.Zone).Inc()
 		return nil, err
 	}
+
+	redisDialSuccessCount.WithLabelValues(redis.hostName, redis.Zone).Inc()
 	if redis.password != "" {
 		if _, err := c.Do("AUTH", redis.password); err != nil {
 			c.Close()
