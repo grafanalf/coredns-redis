@@ -11,19 +11,15 @@ amount of intelligence as possible:
 * Zone transfer and other fancy features are explictly ignored
 * DNS TTL support is implemented by relying on Redis EXPIRE/TTL commands
 
+Valid data is expected to be populated into Redis by some other system. This
+plug-in only performed read-only queries onto Redis: no update functionality
+is implemented.
+
 # Features
 
 ## DNS RRs
 
-Minimum support for SOA, NS, A and CNAME resource records is implemented.
-Documentation on how these are stored in Redis can be found below.
-
-Note that CNAME queries are handled transparently: the DNS client will not
-see the process used to resolve CNAMEs internally to a leaf A RR. This is
-an opinionated decision, which probably breaks the DNS specification, but
-allows concealing internal implementation details on how DNS aliasing is
-implemented, and is likely irrelevant to DNS clients: in the end, they seek
-an IPv4 address.
+Minimum support for SOA, NS, A and CNAME rValid data is expected to be populated into Redis by some other system" near the top.  And modify the line I'm quoting to say something that is true (is it a hang-over from some different implementation?)
 
 ## Transport protocols
 
