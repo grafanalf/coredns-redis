@@ -11,6 +11,35 @@ amount of intelligence as possible:
 * Zone transfer and other fancy features are explictly ignored
 * DNS TTL support is implemented by relying on Redis EXPIRE/TTL commands
 
+# Features
+
+## DNS RRs
+
+Minimum support for SOA, NS, A and CNAME resource records is implemented.
+Documentation on how these are stored in Redis can be found below.
+
+Note that CNAME queries are handled transparently: the DNS client will not
+see the process used to resolve CNAMEs internally to a leaf A RR. This is
+an opinionated decision, which probably breaks the DNS specification, but
+allows concealing internal implementation details on how DNS aliasing is
+implemented, and is likely irrelevant to DNS clients: in the end, they seek
+an IPv4 address.
+
+## Transport protocols
+
+At the moment, only DNS queries are served over UDP or TCP. Other transports,
+like DNS over HTTP/S or over QUIC are not supported.
+
+## Reverse Zones
+
+Not supported.
+
+## Zone Transfers
+
+Not supported.
+
+# Redis storage definition
+
 All DNS RRs are implemented using Redis plain key/values and ASCII literals.
 
 The key format conforms to:
@@ -141,20 +170,27 @@ Example:
 "300 IN NS foo.example.com. bar.example.com."
 ```
 
-## Configuration
+## Building CoreDNS
 
-This plugin should be located right next to `etcd` in `plugins.cfg`:
+This plug-in is not included as part of CoreDNS and requires a custom binary
+to be built with this plug-in. This plugin should be located right next to
+`etcd` in `plugins.cfg`:
 
-```
-...
-secondary:secondary
-etcd:etcd
-redis:github.com/grafanalf/coredns-redis/redis
-loop:loop
-forward:forward
-grpc:grpc
-...
-```
+```diff
+diff --git a/plugin.cfg b/plugin.cfg
+index a7aef87d..21b106bf 100644
+--- a/plugin.cfg
++++ b/plugin.cfg
+@@ -63,7 +63,7 @@ file:file
+ auto:auto
+ secondary:secondary
+ etcd:etcd
+-redis:github.com/grafanalf/coredns-redis/plugin
++redis:github.com/grafanalf/coredns-redis/redis
+ loop:loop
+ forward:forward
+ grpc:grpc
+ ```
 
 ## Load-testing
 
@@ -170,66 +206,56 @@ example.com.      SOA
 example.com.      NS
 ```
 
-## configuration
+## Configuration
+
+This plug-in has a configuration block that begins with the reserved word
+`redis` and has the following supported parameters:
 
 ```
 {
   redis {
     address HOST:PORT
-    username USER
-    password PASSWORD
-    connect_timeout TIME_MS
-    read_timeout TIME_MS
-    ttl TIME_S
-    prefix PREFIX
+    [username USER]
+    [password PASSWORD]
+    [prefix PREFIX]
+    [connect_timeout TIME_MS]
+    [read_timeout TIME_MS]
+    [idle_timeout TIME_MS]
+    [max_active NUM_CONNS]
+    [max_idle NUM_CONNS]
   }
 }
 ```
 
-- `address` is the address of the redis backend in form of *host:port* (defaults to `localhost:6379`)
+- `address` is the address of the Redis backend in form of *host:port* (defaults to `localhost:6379`)
 - `username` is the username for connectiong to the redis backend (optional)
 - `password` is the redis password (optional)
-- `connect_timeout` maximum time to establish a connection to the redis backend (in ms, optional)
-- `read_timeout` maximum time to wait for the redis backend to respond (in ms, optional)
-- `ttl` default ttl for dns records which have no ttl set (in seconds, default 3600)
-- `prefix` a prefix added to all redis keys
+- `prefix` a prefix added to all Redis keys
+- `connect_timeout` maximum time to establish a connection to the Redis backend (in ms, optional)
+- `read_timeout` maximum time to wait for the Redis backend to respond (in ms, optional)
+- `idle_timeout` time a Redis connection needs to be idle to be closed automatically (in ms, optional)
+- `max_active` maximum number of Redis connections that can be simulatenously open at any given time (integer, optional)
+- `max_idle` maximum number of Redis connections in idle state (integer, optional)
 
-### example
+### Example
 
 corefile:
 ```
 {
   .{
-    redis {
-      address localhost:6379
-      username redis_user
-      password super_secret
-      connect_timeout 2000
-      read_timeout 2000
-      ttl 300
-      prefix DNS_
+    redis example.com {
+        address localhost:6379
+        connect_timeout 100
+        read_timeout 100
+        idle_timeout 60
+        max_idle 50
+        max_active 1000
+        prefix _DNS:
     }
   }
 }
 ```
 
-## reverse zones
+# Credits
 
-not yet supported
-
-
-## proxy
-
-not yet supported
-
-## API
-
-Package `redis` provides functions to manipulate (get, add, edit, delete) the data in the redis backend.
-The DNS zones are saved as hashmaps with the zone-name as key in the backend.
-While the data format is JSON at the moment, but I am considering switching to 
-*protobuf* for performance reasons later. 
-
-## credits
-
-this plugin started as a fork of [github.com/arvancloud/redis](https://github.com/arvancloud/redis).
-
+This plugin started as a fork of [github.com/rverst/coredns-redis.git](https://github.com/rverst/coredns-redis).
