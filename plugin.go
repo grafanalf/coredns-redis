@@ -76,7 +76,6 @@ func (p *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 // Update statistics about Redis Pools periodically
 func (p *Plugin) updateRedisPoolStats(period time.Duration) {
 	t := time.NewTicker(period)
-	defer t.Stop()
 	for {
 		<-t.C
 		redisPoolStats.WithLabelValues(
