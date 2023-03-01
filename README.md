@@ -6,8 +6,8 @@ amount of intelligence as possible:
 
 * No data is cached by the plug-in; however the CoreDNS `cache` plug-in
   can be used
-* A very small subset of the DNS protocol is implemented: only SOA, NS
-  and A records are currently supported
+* A very small subset of the DNS protocol is implemented: only SOA, NS,
+  CNAME and A records are currently supported
 * Zone transfer and other fancy features are explictly ignored
 * DNS TTL support is implemented by relying on Redis EXPIRE/TTL commands
 
@@ -46,6 +46,22 @@ key can be checked using the `TTL` Redis command:
 
 The following sections describe the specification for each of the DNS RRs
 that are supported:
+
+## CNAME RR
+
+The `CNAME` RR is special when compared to the other ones: as it behaves as
+a synbolic lihk, its payload is simply the FQDN of its target or destination:
+
+```
+<FQDN>
+```
+
+Example:
+
+```
+127.0.0.1:6379> GET "_smartdns:CNAME/test.example.com."
+"foo.example.com."
+```
 
 ## A RR
 

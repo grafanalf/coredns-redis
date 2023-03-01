@@ -32,7 +32,6 @@ type Redis struct {
 	maxActive      int
 	maxIdle        int
 	keyPrefix      string
-	keySuffix      string
 }
 
 func New(zone string) *Redis {
@@ -324,7 +323,37 @@ func (redis *Redis) getAdditionalRecords(recordName string, conn redisCon.Conn) 
 	return
 }
 
-func (redis *Redis) LoadZoneRecords(recordType, recordName string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
+/*
+ * Answer a query using data from Redis about a DNS record.
+ *
+ * Args:
+ * - `recordType`      : string, literal DNS RR type of the record being
+ *                       queried (e.g. `A`).
+ * - `queryRecordName` : string, name of the DNS RR to look up in Redis.
+ *                       Can be different from `recordName` (see below)
+ * - `recordName`      : string, name of the DN RR to output in the answer.
+ *                       Can be different from `queryRecordName` (see
+ *                       below).
+ * - `conn`            : `redisCon.Conn`, Redis connection.
+ *
+ * Returns:
+ * - `answers` : array of `dns.RR` with answer(s) to the DNS query. There
+ *               are DNS RRs that allows multiple values, like `A` records
+ *               with multiple IPv4 addresses.
+ * - `extras`  : array of `dns.RR` with additional answers to the DNS query.
+ *               This is usually populated with answers that relate to the
+ *               original query, like the `A` records for the name server(s)
+ *               in `SOA` or `NS` queries.
+ * - `error`   : whether an error occurred, or `nil` otherwise.
+ *
+ * NOTE: `queryRecordName“ is the record to look for in Redis. However, in
+ * order to allow for transparent CNAME handling, `recordName` is the actual
+ * record name to be output in the DNS response:
+ *
+ * - For `CNAME` records, `queryRecordName` != `recordName`.
+ * -  For `A` records, `queryRecordName` == `recordName`.
+ */
+func (redis *Redis) _LoadZoneRecords(recordType, queryRecordName, recordName string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
 	var (
 		keyName      string
 		ttlKeyName   string
@@ -332,7 +361,7 @@ func (redis *Redis) LoadZoneRecords(recordType, recordName string, conn redisCon
 		remainingTtl int    // remaining TTL (from Redis)
 	)
 
-	keyName = fmt.Sprintf("%s/%s", recordType, recordName)
+	keyName = fmt.Sprintf("%s/%s", recordType, queryRecordName)
 	ttlKeyName = fmt.Sprintf("%s:ttl", keyName)
 
 	err = conn.Send("MULTI")
@@ -386,19 +415,72 @@ func (redis *Redis) LoadZoneRecords(recordType, recordName string, conn redisCon
 	return
 }
 
+// Try resolving a `CNAME` query into its target, in order to perform
+// transparent handling of CNAMEs. Returns the empty string if no `CNAME`
+// record exists, or an `err`.
+func (redis *Redis) tryCNAME(recordName string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
+	value, err := conn.Do(
+		"GET",
+		redis.Key(fmt.Sprintf("CNAME/%s", recordName)),
+	)
+	if err != nil {
+		return
+	}
+	target := fmt.Sprintf("%s", value)
+	if target != "" {
+		log.Debugf("CNAME/%s yields alias for A/%s\n", recordName, target)
+		return redis._LoadZoneRecords("A", target, recordName, conn)
+	}
+	return
+}
+
+/*
+ * Answer a query using data from Redis about a DNS record.
+ *
+ * This method performs transparent handling of CNAMEs, in such a way that
+ * the DNS client will never perceive such translation. Instead, the query
+ * behaves as if a `A` record existed instead.
+ *
+ * Args:
+ * - `recordType` : string, literal DNS RR type of the record being queried
+ *                  (e.g. `A`).
+ * - `RecordName` : string, name of the DNS RR to look up in Redis.
+ * - `conn`       : `redisCon.Conn`, Redis connection.
+ *
+ * Returns:
+ * - `answers` : array of `dns.RR` with answer(s) to the DNS query. There
+ *               are DNS RRs that allows multiple values, like `A` records
+ *               with multiple IPv4 addresses.
+ * - `extras`  : array of `dns.RR` with additional answers to the DNS query.
+ *               This is usually populated with answers that relate to the
+ *               original query, like the `A` records for the name server(s)
+ *               in `SOA` or `NS` queries.
+ * - `error`   : whether an error occurred, or `nil` otherwise.
+ */
+func (redis *Redis) LoadZoneRecords(recordType, recordName string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
+	// Handling of transparent `CNAME` aliasing: DNS clients will never
+	// get to see the CNAME in the additional answers.
+	if recordType == "A" {
+		answers, extras, err = redis.tryCNAME(recordName, conn)
+		if err == nil {
+			return
+		}
+	}
+	return redis._LoadZoneRecords(recordType, recordName, recordName, conn)
+}
+
 // LoadAllZoneNames returns all zone names saved in the backend
 func (redis *Redis) LoadAllZoneNames() ([]string, error) {
 	conn := redis.Pool.Get()
 	defer conn.Close()
 
-	reply, err := conn.Do("KEYS", redis.keyPrefix+"*"+redis.keySuffix)
+	reply, err := conn.Do("KEYS", redis.Key("*"))
 	zones, err := redisCon.Strings(reply, err)
 	if err != nil {
 		return nil, err
 	}
 	for i := range zones {
 		zones[i] = strings.TrimPrefix(zones[i], redis.keyPrefix)
-		zones[i] = strings.TrimSuffix(zones[i], redis.keySuffix)
 	}
 	return zones, nil
 }
