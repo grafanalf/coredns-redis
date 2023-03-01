@@ -51,7 +51,7 @@ func (redis *Redis) SetAddress(a string) {
 }
 
 // SetUsername sets the username for the redis connection (optional)
-func (redis Redis) SetUsername(u string) {
+func (redis *Redis) SetUsername(u string) {
 	redis.username = u
 }
 
