@@ -275,28 +275,30 @@ func (redis *Redis) parseSOA(fields []string, zoneName string, header dns.RR_Hea
 	return
 }
 
-func (redis *Redis) parseSRV(fields []string, zoneName string, header dns.RR_Header) []dns.RR {	
+func (redis *Redis) parseSRV(fields []string, zoneName string, header dns.RR_Header) ([]dns.RR, error) {	
 	var answers []dns.RR
 	r := new(dns.SRV)
 	header.Name = zoneName
 	header.Rrtype = dns.TypeSRV
 	r.Hdr = header
-
+	
+	var err error
 	var x int
+	
 	if x, err = strconv.Atoi(fields[0]); err != nil {
-		return
+		return nil, err
 	}
-	r.Priority = uint32(x)
+	r.Priority = uint16(x)
 
 	if x, err = strconv.Atoi(fields[1]); err != nil {
-		return
+		return nil, err
 	}
-	r.Weight = uint32(x)
+	r.Weight = uint16(x)
 
 	if x, err = strconv.Atoi(fields[2]); err != nil {
-		return
+		return nil, err
 	}
-	r.Port = uint32(x)
+	r.Port = uint16(x)
 
 	r.Target = fields[3]
 	if !dns.IsFqdn(r.Target) {
@@ -304,7 +306,7 @@ func (redis *Redis) parseSRV(fields []string, zoneName string, header dns.RR_Hea
 	}
 
 	answers = append(answers, r)
-	return
+	return answers, nil
 }
 
 func (redis *Redis) parseRecordValuesFromString(recordType, recordName, rData string, conn redisCon.Conn) (answers, extras []dns.RR, err error) {
@@ -335,7 +337,7 @@ func (redis *Redis) parseRecordValuesFromString(recordType, recordName, rData st
 	case "A":
 		answers = redis.parseA(fields[3:], recordName, header)
 	case "SRV":
-		answers = redis.parseSRV(fields[3:], recordName, header)
+		answers, err = redis.parseSRV(fields[3:], recordName, header)
 	case "NS":
 		answers, extras, err = redis.parseNS(fields[3:], recordName, header, conn)
 	case "SOA":
