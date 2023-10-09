@@ -1,4 +1,4 @@
-module github.com/grafanalf/coredns-redis
+module github.com/awesomepandapig/coredns-redis
 
 go 1.19
 
