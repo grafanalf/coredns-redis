@@ -305,6 +305,8 @@ func (redis *Redis) parseSRV(fields []string, zoneName string, header dns.RR_Hea
 		r.Target = fmt.Sprintf("%s.%s", r.Target, zoneName)
 	}
 
+	fmt.Printf("Parsed SRV DNS record: Priority=%d Weight=%d Port=%d Target=%s\n", r.Priority, r.Weight, r.Port, r.Target)
+
 	answers = append(answers, r)
 	return answers, nil
 }
