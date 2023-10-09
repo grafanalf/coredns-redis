@@ -299,7 +299,7 @@ func (redis *Redis) parseSRV(fields []string, zoneName string, header dns.RR_Hea
 
 	r.Target = fields[3]
 	if !dns.IsFqdn(r.Target) {
-		r.Target = fmt.Sprintf("%s.%s", r.Mbox, zoneName)
+		r.Target = fmt.Sprintf("%s.%s", r.Target, zoneName)
 	}
 
 	answers = append(answers, r)
