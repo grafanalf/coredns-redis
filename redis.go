@@ -275,7 +275,8 @@ func (redis *Redis) parseSOA(fields []string, zoneName string, header dns.RR_Hea
 	return
 }
 
-func (redis *Redis) parseSRV(fields []string, zoneName string, header dns.RR_Header) []dns.RR {
+func (redis *Redis) parseSRV(fields []string, zoneName string, header dns.RR_Header) []dns.RR {	
+	var answers []dns.RR
 	r := new(dns.SRV)
 	header.Name = zoneName
 	header.Rrtype = dns.TypeSRV
