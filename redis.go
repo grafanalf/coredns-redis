@@ -238,27 +238,27 @@ func (redis *Redis) parseSOA(fields []string, zoneName string, header dns.RR_Hea
 	}
 
 	var x int
-	if x, err = strconv.Atoi(fields[2]); err != nil {
+	if x, err = strconv.ParseInt(fields[2], 10, 32); err != nil {
 		return
 	}
 	r.Serial = uint32(x)
 
-	if x, err = strconv.Atoi(fields[3]); err != nil {
+	if x, err = strconv.ParseInt(fields[3], 10, 32); err != nil {
 		return
 	}
 	r.Refresh = uint32(x)
 
-	if x, err = strconv.Atoi(fields[4]); err != nil {
+	if x, err = strconv.ParseInt(fields[4], 10, 32); err != nil {
 		return
 	}
 	r.Retry = uint32(x)
 
-	if x, err = strconv.Atoi(fields[5]); err != nil {
+	if x, err = strconv.ParseInt(fields[5], 10, 32); err != nil {
 		return
 	}
 	r.Expire = uint32(x)
 
-	if x, err = strconv.Atoi(fields[6]); err != nil {
+	if x, err = strconv.ParseInt(fields[6], 10, 32); err != nil {
 		return
 	}
 	r.Minttl = uint32(x)
@@ -285,17 +285,17 @@ func (redis *Redis) parseSRV(fields []string, zoneName string, header dns.RR_Hea
 	var err error
 	var x int
 	
-	if x, err = strconv.Atoi(fields[0]); err != nil {
+	if x, err = strconv.ParseInt(fields[0], 10, 16); err != nil {
 		return nil, err
 	}
 	r.Priority = uint16(x)
 
-	if x, err = strconv.Atoi(fields[1]); err != nil {
+	if x, err = strconv.ParseInt(fields[1], 10, 16); err != nil {
 		return nil, err
 	}
 	r.Weight = uint16(x)
 
-	if x, err = strconv.Atoi(fields[2]); err != nil {
+	if x, err = strconv.ParseInt(fields[2], 10, 16); err != nil {
 		return nil, err
 	}
 	r.Port = uint16(x)
@@ -323,7 +323,7 @@ func (redis *Redis) parseRecordValuesFromString(recordType, recordName, rData st
 		err = fmt.Errorf("error: mismatch record type for %s: %s != %s", recordName, recordType, fields[2])
 		return
 	}
-	ttl, err := strconv.Atoi(fields[0])
+	ttl, err := strconv.ParseInt(fields[0], 10, 32);
 	if err != nil {
 		err = fmt.Errorf("error parsing TTL literal '%s': %s", fields[0], err)
 		return
